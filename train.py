@@ -48,22 +48,15 @@ def get_bvals(dwfn, bvalpat='*bval*'):
     return bvals
 
 def make_lsvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
-                Dcsf=0.00305, blankval=0, clamp=30,
-                normslop=0.2, logclamp=-10,
-                outlabel='lsvecs'):
+                Dcsf=0.00305, blankval=0, clamp=30, normslop=0.2,
+                logclamp=-10, outlabel='lsvecs'):
     bvals = get_bvals(dwfn)
     dwnii = nib.load(dwfn)
     aff = dwnii.affine
     data = dwnii.get_data()
     
-    lsvecs = dbe.make_support_vectors(data, aff, bvals, bvecs, smoothrad=smoothrad)
+    lsvecs = dbe.make_feature_vectors(data, aff, bvals, bvecs, smoothrad=smoothrad)
     tlogclamp = 10**logclamp
-    # for v in xrange(2):
-    #     temp = lsvecs[..., v]
-    #     temp[temp < tlogclamp] = tlogclamp
-    #     #lsvecs[lsvecs < tlogclamp] = tlogclamp
-    #     temp = np.log10(temp)
-    #     lsvecs[..., v] = temp
     lsvecs[lsvecs < tlogclamp] = tlogclamp
     lsvecs = np.log10(lsvecs)
     posterity  = "Logarithmic support vectors made with:\n"
@@ -78,7 +71,7 @@ def make_lsvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
     
     outfn = dwfn.replace('.nii', '_%s.nii' % outlabel)
     outnii = nib.Nifti1Image(lsvecs, aff)
-    outnii.get_header().extensions.append(nib.nifti1.Nifti1Extension('comment',
+    outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
                                                                      posterity))
     nib.save(outnii, outfn)
     return outfn
@@ -103,6 +96,53 @@ def edited_to_segmentation(tivfn, brfn, s0fn):
     nib.save(nib.Nifti1Image(seg, brnii.affine), outfn)
     return outfn
 
+def gather_svm_samples(svecs, tmask, maxperclass=100000,
+                       tmasktype=np.int8, verbose=False):
+    """
+    Gather samples for each segmentation class.
+
+    Parameters
+    ----------
+    svecs: (nx, ny, nz, len(feature vector)) array
+        The feature vector field
+    tmask: (nx, ny, nz) array of ints
+        The segmentation labels (classes) for each voxel.
+    maxperclass: int
+        The maximum number of samples for each class.
+    tmasktype: type
+        The type that tmask will be internally cast to.
+
+    Output
+    ------
+    samps: (nsamples, len(feature vector)) array
+        A subset of svecs
+    targets: (nsamples,) array of ints
+        The corresponding segmentation classes
+    """
+    # 100000 works well for RandomForestClassifier, which works better than
+    # *SVM_CV or AdaBoost anyway.  (no tuning was done for AdaBoost, though.)
+    nvox = np.prod(tmask.shape)
+
+    if verbose:
+        print "svecs.shape:", svecs.shape
+    
+    sfsvecs = svecs.reshape((nvox, svecs.shape[-1]))  # Reshaped feature vectors
+    ftargs = tmask.reshape((nvox,)).astype(tmasktype) # Flattened segmentations
+    mint = np.min(ftargs)                             # Minimum segmentation class
+    maxt = np.max(ftargs)                             # Maximum segmentation class
+    samps = np.empty((0, svecs.shape[-1]))            # Make a stub to append to.
+    targets = []                                      # Segmentation class for each sample
+    for t in xrange(mint, maxt + 1):                  # for each class,
+        tsamps = sfsvecs[ftargs == t]                 # feature vectors matching class
+        ntsamps = len(tsamps)
+        if ntsamps > maxperclass:
+            rows = np.random.randint(0, ntsamps, maxperclass)
+            tsamps = tsamps[rows]
+            ntsamps = maxperclass
+        samps = np.vstack((samps, tsamps))        # Append tsamps to samps
+        targets += [t] * ntsamps                  # Annotate them 
+    return samps, np.array(targets)
+
 def make_segmentation(lsvecsfn, fvcfn, custom_label=False, outfn=None, useT1=False):
     aff = nib.load(lsvecsfn).get_affine()
 
@@ -114,7 +154,8 @@ def make_segmentation(lsvecsfn, fvcfn, custom_label=False, outfn=None, useT1=Fal
     # os.path.abspath is idempotent.
     brain, csf, other, holes, posterity = dbe.feature_vector_classify(None, aff, None,
                                                                       clf=os.path.abspath(fvcfn),
-                                                                      lsvecs=lsvecsfn, t1wtiv=t1wtiv)
+                                                                      lsvecs=lsvecsfn,
+                                                                      t1wtiv=t1wtiv)
 
     seg = np.zeros_like(brain)
     seg[brain > 0] = 1
@@ -130,8 +171,8 @@ def make_segmentation(lsvecsfn, fvcfn, custom_label=False, outfn=None, useT1=Fal
     if outdir and not os.path.isdir(outdir):
         os.makedirs(outdir)
     outnii = nib.Nifti1Image(seg, aff)
-    outnii.get_header().extensions.append(nib.nifti1.Nifti1Extension('comment',
-                                                                     posterity))
+    outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
+                                                               posterity))
     nib.save(outnii, outfn)
     return outfn
 
@@ -253,26 +294,6 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
         lf.write(log)
     return pfn, logfn
 
-def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
-    """
-    Convert a single FWHM in mm to a vector of scales in voxels suitable for
-    use as sigma in ndi.filters.gaussian_filter.
-
-    Parameters
-    ----------
-    fwhm: float in aff's scale (should be mm)
-    aff: affine matrix for the image
-    fwhm_per_sigma: how many FWHMs are in a standard deviation,
-                   = 1.0 / (8 * np.log(2))**0.5 for the normal distribution.
-                   (~= 0.4246609)
-    Output
-    ------
-    sigma: (3,) array
-        Standard deviations in voxel coordinates
-    """
-    scales = utils.voxel_sizes(aff)
-    return fwhm * np.asarray(fwhm_per_sigma) / scales
-    
 def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
                                     class_weight="balanced_subsample",
                                     smoothrad=10.0, srclist_is_srcdirs=False,
@@ -376,7 +397,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         #if morpho1to2:
             
         if useT1:
-            t1sigma = fwhm_to_voxel_sigma(t1fwhm, afflist[-1])
+            t1sigma = dbe.fwhm_to_voxel_sigma(t1fwhm, afflist[-1])
             t1wtiv = os.path.join(vols, 'bdp/dtb_eddy_T1wTIV.nii')
             svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1] + 1,))
             ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data(), sigma=t1sigma,
@@ -384,13 +405,13 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         else:
             svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1],))
         svecs2[..., :svecs.shape[3]] = svecs
-        sigma = fwhm_to_voxel_sigma(smoothrad, aff)
+        sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
         for v in xrange(probs.shape[-1]):
             ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + svecs.shape[3]],
                                         mode='nearest')
         # svecs2 = np.empty(svecs.shape[:3] + (12,))
         # svecs2[..., :4] = svecs
-        # sigma = fwhm_to_voxel_sigma(smoothrad, aff)
+        # sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
         # for v in xrange(4):
         #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + 4],
         #                                 mode='nearest')
