@@ -7,15 +7,13 @@ from scipy.ndimage.filters import median_filter, convolve
 import scipy.special
 import scipy.stats as stats
 import sklearn.externals.joblib as joblib
-
+from skimage.morphology import reconstruction
 try:
     from skimage.filter import threshold_otsu as otsu
 except:
     from dipy.segment.threshold import otsu
 
-from skimage.morphology import reconstruction
-
-import ADIR.numerical_utils as nu
+import utils
 
 def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     """

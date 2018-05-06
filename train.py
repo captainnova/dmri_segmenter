@@ -55,11 +55,11 @@ def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
     aff = dwnii.affine
     data = dwnii.get_data()
     
-    fvecs = dbe.make_feature_vectors(data, aff, bvals, bvecs, smoothrad=smoothrad)
+    fvecs = dbe.make_feature_vectors(data, aff, bvals, smoothrad=smoothrad)
     tlogclamp = 10**logclamp
     fvecs[fvecs < tlogclamp] = tlogclamp
     fvecs = np.log10(fvecs)
-    posterity  = "Logarithmic support vectors made with:\n"
+    posterity  = "Logarithmic feature vectors made with:\n"
     posterity += "\tbthresh = %f\n" % bthresh
     posterity += "\tsmoothrad = %f mm\n" % smoothrad
     posterity += "\tDt = %f\n" % Dt
