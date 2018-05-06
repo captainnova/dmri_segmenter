@@ -47,18 +47,18 @@ def get_bvals(dwfn, bvalpat='*bval*'):
     bvals, _ = dipy.io.read_bvals_bvecs(bvalfn, None)
     return bvals
 
-def make_lsvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
+def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
                 Dcsf=0.00305, blankval=0, clamp=30, normslop=0.2,
-                logclamp=-10, outlabel='lsvecs'):
+                logclamp=-10, outlabel='fvecs'):
     bvals = get_bvals(dwfn)
     dwnii = nib.load(dwfn)
     aff = dwnii.affine
     data = dwnii.get_data()
     
-    lsvecs = dbe.make_feature_vectors(data, aff, bvals, bvecs, smoothrad=smoothrad)
+    fvecs = dbe.make_feature_vectors(data, aff, bvals, bvecs, smoothrad=smoothrad)
     tlogclamp = 10**logclamp
-    lsvecs[lsvecs < tlogclamp] = tlogclamp
-    lsvecs = np.log10(lsvecs)
+    fvecs[fvecs < tlogclamp] = tlogclamp
+    fvecs = np.log10(fvecs)
     posterity  = "Logarithmic support vectors made with:\n"
     posterity += "\tbthresh = %f\n" % bthresh
     posterity += "\tsmoothrad = %f mm\n" % smoothrad
@@ -70,7 +70,7 @@ def make_lsvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
     posterity += "\tlogclamp = %f\n" % logclamp
     
     outfn = dwfn.replace('.nii', '_%s.nii' % outlabel)
-    outnii = nib.Nifti1Image(lsvecs, aff)
+    outnii = nib.Nifti1Image(fvecs, aff)
     outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
                                                                      posterity))
     nib.save(outnii, outfn)
@@ -143,18 +143,18 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
         targets += [t] * ntsamps                  # Annotate them 
     return samps, np.array(targets)
 
-def make_segmentation(lsvecsfn, fvcfn, custom_label=False, outfn=None, useT1=False):
-    aff = nib.load(lsvecsfn).get_affine()
+def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None, useT1=False):
+    aff = nib.load(fvecsfn).get_affine()
 
     if useT1:
-        t1wtiv = lsvecsfn.replace('dtb_eddy_lsvecs.nii', 'bdp/dtb_eddy_T1wTIV.nii')
+        t1wtiv = fvecsfn.replace('dtb_eddy_fvecs.nii', 'bdp/dtb_eddy_T1wTIV.nii')
     else:
         t1wtiv = None
     
     # os.path.abspath is idempotent.
     brain, csf, other, holes, posterity = dbe.feature_vector_classify(None, aff, None,
                                                                       clf=os.path.abspath(fvcfn),
-                                                                      lsvecs=lsvecsfn,
+                                                                      fvecs=fvecsfn,
                                                                       t1wtiv=t1wtiv)
 
     seg = np.zeros_like(brain)
@@ -164,9 +164,9 @@ def make_segmentation(lsvecsfn, fvcfn, custom_label=False, outfn=None, useT1=Fal
 
     if outfn is None:
         if custom_label:
-            outfn = lsvecsfn.replace('_lsvecs', '_' + fvcfn.replace('.joblib_dump', ''))
+            outfn = fvecsfn.replace('_fvecs', '_' + fvcfn.replace('.joblib_dump', ''))
         else:
-            outfn = lsvecsfn.replace('_lsvecs.nii', '_rfcseg.nii')
+            outfn = fvecsfn.replace('_fvecs.nii', '_rfcseg.nii')
     outdir, outbase = os.path.split(outfn)
     if outdir and not os.path.isdir(outdir):
         os.makedirs(outdir)
@@ -270,7 +270,7 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
     """
     for i, src in enumerate(srclist):
         vols = 'training/' + src
-        svecs = nib.load(os.path.join(vols, 'dtb_eddy_lsvecs.nii')).get_data()
+        svecs = nib.load(os.path.join(vols, 'dtb_eddy_fvecs.nii')).get_data()
         tmask = nib.load(os.path.join(vols, 'dtb_eddy_T1wTIV_edited_segmentation.nii')).get_data()
         samps, targets = dbe.gather_svm_samples(svecs, tmask, maxperclass=maxperclass)
         if i == 0:
@@ -297,7 +297,7 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
 def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
                                     class_weight="balanced_subsample",
                                     smoothrad=10.0, srclist_is_srcdirs=False,
-                                    lsvecs_fn='dtb_eddy_lsvecs.nii',
+                                    fvecs_fn='dtb_eddy_fvecs.nii',
                                     useT1=False, t1fwhm=[2.0, 10.0, 2.0],
                                     n_estimators=10,
                                     max_features='auto', # 'auto' = sqrt(n_features)
@@ -338,7 +338,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         else:
             vols = src
         volslist.append(vols)
-        snii = nib.load(os.path.join(vols, lsvecs_fn))
+        snii = nib.load(os.path.join(vols, fvecs_fn))
         afflist.append(snii.get_affine())
         svecs = snii.get_data()
         svecslist.append(svecs)

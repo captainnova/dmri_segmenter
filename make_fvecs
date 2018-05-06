@@ -1,0 +1,33 @@
+#!/usr/bin/python
+
+"""
+Make feature vectors from diffusion MRI data for dmri_segmenter
+
+Usage:
+  make_fvecs [-l LABEL] [-s RADIUS] <dwfn>
+
+Arguments:
+  dwfn:  Filename of an eddy corrected 4D dMRI nii.
+
+Options:
+  -l LABEL, --label=LABEL      The output will be written to
+                               dwfn.replace('.nii', '_%s.nii' % LABEL).
+                               [default: fvecs]
+  -s RADIUS --smooth=RADIUS    Specify the smoothing radius in mm.
+                               [default: 10.0]
+  -h --help                    Show this message and exit.
+  --version                    Show version and exit.
+"""
+
+from docopt import docopt
+import sys
+
+import train
+
+# Please use semantic versioning (API.feature.bugfix), http://semver.org/
+args = docopt(__doc__, version='0.9.0')
+
+outfn = train.make_fvecs(args['<dwfn>'], smoothrad=float(args['--smooth']),
+                         outlabel=args['--label'])
+print "Wrote", outfn
+sys.exit(0)

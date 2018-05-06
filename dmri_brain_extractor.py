@@ -244,8 +244,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, bthresh=300.0,
         # Now we have an approximate brain, and we know it is surrounded by CSF
         # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
         # whether CSF is brighter or darker than tissue in the b0.
-        #tissfracgtcsfmed = len(b0tiss[b0tiss > csfmed]) / float(len(b0tiss))
-        if flairt < 0:
+        tissmed = np.median(b0tiss)
+        if tissmed > 2.0 * csfmed:
             isFLAIR = True
             flair_msg = "This appears to be"
         else:
@@ -708,7 +708,7 @@ def fill_axial_holes(arr):
 def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_dump',
                             bthresh=0.02, smoothrad=13.5, s0=None, Dt=0.00300,
                             Dcsf=0.00305, blankval=0, clamp=30,
-                            normslop=0.2, logclamp=-10, lsvecs=None,
+                            normslop=0.2, logclamp=-10, fvecs=None,
                             t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
     """
     Make at least one feature vector field from data, and use for segmentation
@@ -721,7 +721,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
     aff: (4, 4) array
         Affine matrix for data
     bvals: None or (nv,) array
-        The diffusion weightings for each volume in data.  Only needed if lsvecs
+        The diffusion weightings for each volume in data.  Only needed if fvecs
         is not provided.
     clf: str or sklearn classifier
         The (1st stage) feature vector classifier, which must have been already
@@ -758,7 +758,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         Since it is a parameter of training data, do not change it!
     logclamp: float
         Feature vector values < this (in log10 space) will be set to this.
-    lsvecs: str or None
+    fvecs: str or None
         Optional filename of a .nii to load the (1st stage) feature vectors from.
         If not given, they will be made from data.
     clf2: None, str, or sklearn classifier
@@ -767,7 +767,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         a 3D Gaussian kernel of FWMH smoothrad.  clf must have a .predict_proba()
         method (sklearn.ensemble.forest.RandomForestClassifier does, and it is
         just the fraction of trees voting for each class), and clf2 must have
-        been trained with augmented feature vectors (lsvecs followed by the
+        been trained with augmented feature vectors (fvecs followed by the
         convolved 1st stage probabilities).
 
     Output
@@ -809,14 +809,14 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         posterity += "Classifier intercept scaling: %s\n" % clf.intercept_scaling
         posterity += "Classifier coefficients:\n%s\n\n" % clf.coef_
 
-    if isinstance(lsvecs, str):
-        lsvecs = nib.load(lsvecs).get_data()
+    if isinstance(fvecs, str):
+        fvecs = nib.load(fvecs).get_data()
     else:
-        lsvecs = make_feature_vectors(data, aff, bvals, bthresh, smoothrad, s0,
+        fvecs = make_feature_vectors(data, aff, bvals, bthresh, smoothrad, s0,
                                       Dt, Dcsf, blankval, clamp, normslop)
         tlogclamp = 10**logclamp
-        lsvecs[lsvecs < tlogclamp] = tlogclamp
-        lsvecs = np.log10(lsvecs)
+        fvecs[fvecs < tlogclamp] = tlogclamp
+        fvecs = np.log10(fvecs)
         posterity += "Logarithmic support vectors made with:\n"
         posterity += "\tbthresh = %f\n" % bthresh
         posterity += "\tsmoothrad = %f mm\n" % smoothrad
@@ -826,17 +826,17 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         posterity += "\tclamp = %f\n" % clamp
         posterity += "\tnormslop = %f\n" % normslop
         posterity += "\tlogclamp = %f\n" % logclamp
-    lsvmmask, probs = classify_fvf(lsvecs, clf, t1wtiv is not None)
+    lsvmmask, probs = classify_fvf(fvecs, clf, t1wtiv is not None)
         
     if clf2 is not None:
-        svecs2 = np.empty(lsvecs.shape[:3] + (lsvecs.shape[3] + probs.shape[-1],))
-        svecs2[..., :lsvecs.shape[-1]] = lsvecs
+        svecs2 = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
+        svecs2[..., :fvecs.shape[-1]] = fvecs
         sigma = fwhm_to_voxel_sigma(smoothrad, aff)
         for v in xrange(probs.shape[-1]):
             ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
-                                        output=svecs2[..., v + lsvecs.shape[-1]], mode='nearest')
-        # svecs2 = np.empty(lsvecs.shape[:3] + (12,))
-        # svecs2[..., :4] = lsvecs
+                                        output=svecs2[..., v + fvecs.shape[-1]], mode='nearest')
+        # svecs2 = np.empty(fvecs.shape[:3] + (12,))
+        # svecs2[..., :4] = fvecs
         # sigma = fwhm_to_voxel_sigma(smoothrad, aff)
         # for v in xrange(4):
         #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
@@ -891,8 +891,8 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         #print msg
         return msg + "\n"
 
-    brain = np.zeros(lsvecs.shape[:3], dtype=np.uint8)
-    csf = np.zeros(lsvecs.shape[:3], dtype=np.uint8)
+    brain = np.zeros(fvecs.shape[:3], dtype=np.uint8)
+    csf = np.zeros(fvecs.shape[:3], dtype=np.uint8)
     brain[lsvmmask == 1] = 1
     csf[lsvmmask == 2] = 1
     posterity += squawk(brain, "brain before removing disconnected components")
