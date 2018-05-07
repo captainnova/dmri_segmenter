@@ -107,9 +107,13 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     
     if data is None:
         data = ecnii.get_data()
-    assert len(data.shape) == 4
+    if len(data.shape) != 4:
+        raise ValueError("the input must be 4 dimensional")
 
     b = np.asarray(bvals)
+    if len(b) != data.shape[-1]:
+        raise ValueError("the length of bvals, %d, does not match the number of data volumes, %d" %
+                         (len(b), data.shape[-1]))
     b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)

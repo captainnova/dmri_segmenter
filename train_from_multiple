@@ -4,7 +4,7 @@
 Train a 2 stage random forest classifier with a list of samples and segmentations.
 
 Usage:
-  train_from_multiple [-t=RT1TIV] TRAIN_LIST CLASSIFIER FVECS [MAXPERCLASS]
+  train_from_multiple [-m=MAXPERCLASS -t=RT1TIV] TRAIN_LIST CLASSIFIER FVECS
   train_from_multiple (-h|--help |--version)
 
 Arguments:
@@ -14,28 +14,28 @@ Arguments:
                    pickle to RFC_<CLASSIFIER>.joblib_dump.
   FVECS:           Get the feature vectors from dir/<FVECS> for each dir
                    in TRAIN_LIST.
-  MAXPERCLASS:     Get up to this many samples of each class.
-                   [default: 100000]
 
 Options:
+  -h --help                 Show this message and exit.
+  --version                 Show the version and exit.
+  -m MPC --mpc=MPC          Get up to this many samples of each class.
+                            [default: 100000]
   -t RT1TIV --t1=RT1TIV     A T1-based TIV, already registered to diffusion
                             space.  If provided, a blurred copy of it will
                             be used as a prior.
-  -h --help                 Show this message and exit.
-  --version                 Show the version and exit.
 """
 from docopt import docopt
 
-import .train
+import train
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
-args = docopt(__doc__, version='0.9.0')
+args = docopt(__doc__, version='0.9.1')
 
 res, pfn, logfn = train.train_both_stages_from_multiple(args['TRAIN_LIST'],
                                                         args['CLASSIFIER'],
                                                         srclist_is_srcdirs=True,
                                                         fvfn=args['FVECS'],
-                                                        maxperclass=args['MAXPERCLASS'],
+                                                        maxperclass=int(args['--mpc']),
                                                         rT1TIVfn=args.get('--t1'))
 print "result:", res
 print "classifier:", pfn

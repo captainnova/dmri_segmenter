@@ -6,8 +6,8 @@
 Make a brain mask for diffusion MRI (dMRI) data.
 
 Usage:
-  extract_dmri_brain [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
-  extract_dmri_brain (-h|--help|--version)
+  skullstrip_dmri [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
+  skullstrip_dmri (-h|--help|--version)
 
 Arguments:
   ecfn:    Filename of an eddy corrected 4D dMRI nii.
@@ -79,7 +79,7 @@ try:
             raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
         
     brain, tiv = get_dmri_brain_and_tiv(ecnii.get_data(), ecnii, brfn=args.get('--brfn'),
-                                        args['<tivfn>'], bvals,
+                                        tivfn=args['<tivfn>'], bvals=bvals,
                                         medrad=float(args['--mr']), nmed=int(args['--nmed']),
                                         verbose=args['--verbose'], dilate=dilation,
                                         closerad=float(args['--cr']), isFLAIR=isFLAIR,
