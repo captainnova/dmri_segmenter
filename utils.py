@@ -165,6 +165,47 @@ def binary_erosion(arr, structure=None, out=None, mode='nearest', cval=0.0, orig
         out = np.empty_like(binary, dtype=np.uint8)  # np.bool might be more logical.
     return np.equal(conv, np.sum(structure), out=out)
 
+def binary_opening(arr, structure=None, out=None, mode='nearest', cval=0.0,
+                   origin=0):
+    """
+    Multidimensional binary opening with a given structuring element.
+    
+    Like scipy.ndimage.binary_opening() except it
+        * supports changing the way array borders are handled, and
+        * does not support iterations, mask, or border_value (handle those yourself).
+    
+    Parameters
+    ----------
+    arr: array_like
+        Binary image to be opened. Non-zero (True) elements form
+        the subset to be opened.
+    structure: array_like
+        Structuring element used for the opening. Non-zero elements are
+        considered True. If no structuring element is provided, a cross-shaped
+        (i.e. center + immediate neighbors) element is used.
+    out: ndarray
+        Array of the same shape as arr, into which the output is placed.
+        Defaults to creating a new array.
+    mode: str
+        ('reflect'|'constant'|'nearest'|'mirror'|'wrap')
+        Determines what values are used outside the borders of arr.
+        For 'constant' mode, they are set to cval.
+    cval: float
+        See mode
+    origin : int or tuple of ints
+        Placement of the filter.
+
+    Returns
+    -------
+    binary_opening : ndarray of bools
+        Opening of arr by the structuring element.
+    """
+    binary, conv, structure = _check_img_and_selem(arr, structure)
+    tmp = binary_erosion(binary, structure, mode=mode, cval=cval, 
+                         origin=origin)
+    return binary_dilation(tmp, structure, out=out, mode=mode,
+                           cval=cval, origin=origin)
+
 def get_1_file_or_hurl(pat):
     """
     Find exactly 1 glob match for pat, or raise a ValueError.
