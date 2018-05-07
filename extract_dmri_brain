@@ -6,7 +6,7 @@
 Make a brain mask for diffusion MRI (dMRI) data.
 
 Usage:
-  extract_dmri_brain [-b=BT -c=CR -d=D -f=HF -i=FL -m=MR -n=NM -p=PCT -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
+  extract_dmri_brain [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
   extract_dmri_brain (-h|--help|--version)
 
 Arguments:
@@ -18,8 +18,6 @@ Arguments:
 Options:
   -h --help               Show this message and exit.
   --version               Show version and exit.
-  -b BT --bt=BT           Cutoff between "diffused" and "nondiffused" b values.
-                          [default: 700]
   -c CR --cr=CR           Closing radius relative to the maximum voxel size
                           with which to close the mask before filling holes.
                           [default: 3.7]
@@ -30,8 +28,6 @@ Options:
                           If y or t (case insensitive), mr * nmed will be
                           used.
                           [default: 0.5]
-  -f HF --hf=HF           Whether or not to fill holes.
-                          [default: 1] (True)
   -i FL --isFL=FL         Specify whether it is (1) or is not (0) a FLAIR
                           diffusion scan.  It defaults to trying to find that
                           from the InversionTime (if available) and the CSF
@@ -41,11 +37,8 @@ Options:
                           [default: 1]
   -n NM --nmed=NM         Number of times to run the median filter
                           [default: 2]
-  -p PCT --pct=PCT        The mask will be based on this percentile of the
-                          diffusion volumes.
-                          [default: 75]
-  -s SVC --svc=SVC        Pickle file for the support vector classifier.
-                          (Not used for FLAIR.)
+  -s SVC --svc=SVC        Pickle or joblib dump file holding the classifier
+                          parameters. (Not used for FLAIR.)
                           [default: RFC_classifier.pickle]
   -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
   --verbose=VE            Be chatty.
@@ -59,7 +52,7 @@ import nibabel as nib
 import os
 import sys
 
-from dmri_brain_extractor import extract_dmri_brain
+from dmri_brain_extractor import get_dmri_brain_and_tiv
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
 args = docopt(__doc__, version='1.0.0')
@@ -85,16 +78,13 @@ try:
         except:
             raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
         
-    mask = extract_dmri_brain(ecnii.get_data(), ecnii, args['<tivfn>'],
-                              bvals, bthresh=float(args['--bt']),
-                              holefill=args['--hf'],
-                              percentage=float(args['--pct']),
-                              medrad=float(args['--mr']),
-                              nmed=int(args['--nmed']),
-                              verbose=args['--verbose'], dilate=dilation,
-                              closerad=float(args['--cr']),
-                              brfn=args.get('--brfn'), isFLAIR=isFLAIR,
-                              svc=args['--svc'], trim_whiskers=not args.get('--whiskers'))
+    brain, tiv = get_dmri_brain_and_tiv(ecnii.get_data(), ecnii, brfn=args.get('--brfn'),
+                                        args['<tivfn>'], bvals,
+                                        medrad=float(args['--mr']), nmed=int(args['--nmed']),
+                                        verbose=args['--verbose'], dilate=dilation,
+                                        closerad=float(args['--cr']), isFLAIR=isFLAIR,
+                                        svc=args['--svc'],
+                                        trim_whiskers=not args.get('--whiskers'))
 except Exception, e:
     if args['--verbose']:
         # Print the traceback

@@ -345,8 +345,7 @@ def suggest_number_of_processors(fraction=0.25):
     n: int >= 1
         The suggested number of jobs to run in parallel.
     """
-    n_cpus = multiprocessing.cpu_count()
-    return max(1, int(fraction * n_cpus))
+    return max(1, int(fraction * cpu_count()))
 
 def voxel_sizes(aff):
     """

@@ -109,6 +109,8 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
         The segmentation labels (classes) for each voxel.
     maxperclass: int
         The maximum number of samples for each class.
+        100000 works well for RandomForestClassifier, which works better than
+        *SVM_CV or AdaBoost anyway.  (no tuning was done for AdaBoost, though.)
     tmasktype: type
         The type that tmask will be internally cast to.
 
@@ -119,8 +121,6 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
     targets: (nsamples,) array of ints
         The corresponding segmentation classes
     """
-    # 100000 works well for RandomForestClassifier, which works better than
-    # *SVM_CV or AdaBoost anyway.  (no tuning was done for AdaBoost, though.)
     nvox = np.prod(tmask.shape)
 
     if verbose:
@@ -255,10 +255,21 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
     return samps, np.array(targets), notes
 
 def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
-                        compress=0):
+                        compress=0, srcroot='training', fvfn='dtb_eddy_fvecs.nii',
+                        segfn='dtb_eddy_T1wTIV_edited_segmentation.nii'):
     """
     Parameters
     ----------
+    srclist: list of strs
+        Source *directories* with both feature vector and segmented .niis.
+    label: str
+        The classifier parameters will be written as a modified pickle to
+        RFC_<label>.joblib_dump
+    maxperclass: int
+        The maximum number of samples per class.
+    class_weight: str
+        See ensemble.RandomForestClassifier, but note that the number of voxels
+        in each class is typically fairly imbalanced.
     compress: int from 0 to 9, optional
         Compression level for the data. 0 is no compression.
         We use a compressed filesystem at ADIR and do not want
@@ -267,12 +278,18 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
         write times. Using a value of 3 is often a good compromise.
         For more details see
         http://gael-varoquaux.info/programming/new_low-overhead_persistence_in_joblib_for_big_data.html .
+    srcroot: str
+        Directory holding the directories in srclist.
+    fvfn: str
+        Name of the feature vectors image in each directory of srclist.
+    segfn: str
+        Name of the segmented image to use for training in each directory of srclist.
     """
     for i, src in enumerate(srclist):
-        vols = 'training/' + src
-        svecs = nib.load(os.path.join(vols, 'dtb_eddy_fvecs.nii')).get_data()
-        tmask = nib.load(os.path.join(vols, 'dtb_eddy_T1wTIV_edited_segmentation.nii')).get_data()
-        samps, targets = dbe.gather_svm_samples(svecs, tmask, maxperclass=maxperclass)
+        vols = os.path.join(srcroot, src)
+        svecs = nib.load(os.path.join(vols, fvfn)).get_data()
+        tmask = nib.load(os.path.join(vols, segfn)).get_data()
+        samps, targets = gather_svm_samples(svecs, tmask, maxperclass=maxperclass)
         if i == 0:
             catsamps = samps
             cattargs = targets
@@ -297,19 +314,79 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
 def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
                                     class_weight="balanced_subsample",
                                     smoothrad=10.0, srclist_is_srcdirs=False,
-                                    fvecs_fn='dtb_eddy_fvecs.nii',
-                                    useT1=False, t1fwhm=[2.0, 10.0, 2.0],
+                                    fvfn='dtb_eddy_fvecs.nii',
+                                    rT1TIVfn=None, t1fwhm=[2.0, 10.0, 2.0],
                                     n_estimators=10,
                                     max_features='auto', # 'auto' = sqrt(n_features)
+                                    max_depth=12,
                                     min_samples_split=2,
                                     min_samples_leaf=1,
-                                    n_jobs=None):
+                                    compress=0,
+                                    n_jobs=None, srcroot='training',
+                                    segfn='dtb_eddy_T1wTIV_edited_segmentation.nii'):
     """
     Parameters
     ----------
+    srclist: str or list of strs
+        Source *directories* with both feature vector and segmented .niis.
+        If a str, it is taken as the name of a file listing the
+        directories one per line.
+    label: str
+        The classifier parameters will be written as a modified pickle to
+        RFC_<label>.joblib_dump
+    maxperclass: int
+        The maximum number of samples per class.
+    class_weight: str
+        See ensemble.RandomForestClassifier, but note that the number of voxels
+        in each class is typically fairly imbalanced.
+    smoothrad: float
+        FWHM in mm of the Gaussian kernel to use for making smoothed class
+        probabilities to append to the feature vectors used in the 2nd stage
+        classification.
+    srclist_is_srcdirs: bool
+        Iff True, do not prepend srcroot to the directories in srclist.
+    fvfn: str
+        Name of the feature vectors image in each directory of srclist.
+    rT1TIVfn: None or str
+        Name of the T1 TIV registered to diffusion space in each directory
+        of srclist, or None to not use T1 TIVs.
+    t1fwhm: sequence of 3 floats
+        FWHM in mm of the Gaussian kernel to blur rT1TIVfn by to make it
+        a prior.  It should typically be much larger in the phase encoding
+        direction because of EPI distortion.
+    n_estimators: int
+        The number of trees in the forest.  10 works well for allowing
+        probabilities for the 2nd stage to be calculated using the 
+        parliament of trees from the 1st stage.
+    max_features: int, float, string or None, optional (default="auto"="sqrt")
+        The number of features to consider when looking for the best split.
+        Note that random forest classifiers work in part by having different
+        trees consider different features.
+        See ensemble.RandomForestClassifier
+    max_depth: int or None
+        The maximum depth of the tree. If None, then nodes are expanded until
+        all leaves are pure or until all leaves contain less than
+        min_samples_split samples.
+        See ensemble.RandomForestClassifier
+    min_samples_split: int
+        The minimum number of samples required to split an internal node.
+    min_samples_leaf: int
+        The minimum number of samples in newly created leaves.
+    compress: int from 0 to 9, optional
+        Compression level for the output modified pickle. 0 is no compression.
+        We use a compressed filesystem at ADIR and do not want explicit
+        compression.
+        Higher means more compression, but also slower read and
+        write times. Using a value of 3 is often a good compromise.
+        For more details see
+        http://gael-varoquaux.info/programming/new_low-overhead_persistence_in_joblib_for_big_data.html .
     n_jobs: None or int
         The number of parallel jobs to use.  If None it will be determined
         using utils.suggest_number_of_processors().
+    srcroot: str
+        Directory holding the directories in srclist.
+    segfn: str
+        Name of the segmented image to use for training in each directory of srclist.
 
     WARNING! This assumes that srclist is short, since it holds all of
              srclist's svecs in memory.
@@ -318,6 +395,9 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
             hold 1 svec image at a time, even though that means
             rereading them.
     """
+    if isinstance(srclist, str):
+        with open(srclist) as f:
+            srclist = [line.strip() for line in f]
     if len(srclist) > 24:  # Even 24 might be too large
         raise ValueError("""
     This function is not currently written for long srclists.
@@ -334,17 +414,16 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     volslist = []
     for src in srclist:
         if not srclist_is_srcdirs:
-            vols = 'training/' + src
+            vols = os.path.join(srcroot, src)
         else:
             vols = src
         volslist.append(vols)
-        snii = nib.load(os.path.join(vols, fvecs_fn))
+        snii = nib.load(os.path.join(vols, fvfn))
         afflist.append(snii.get_affine())
         svecs = snii.get_data()
         svecslist.append(svecs)
-        tmasklist.append(nib.load(os.path.join(vols,
-                                               'dtb_eddy_T1wTIV_edited_segmentation.nii')).get_data())
-        samps, targets = dbe.gather_svm_samples(svecslist[-1], tmasklist[-1], maxperclass=maxperclass)
+        tmasklist.append(nib.load(os.path.join(vols, segfn)).get_data())
+        samps, targets = gather_svm_samples(svecslist[-1], tmasklist[-1], maxperclass=maxperclass)
         nclasses = max(targets) + 1
         res['src_properties'].append([])
         for c in xrange(nclasses):
@@ -394,11 +473,10 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         svecsr = np.reshape(svecs, (np.prod(svecs.shape[:3]), svecs.shape[3]))
         probs = res['1st stage'].predict_proba(svecsr)
         probs = np.reshape(probs, svecs.shape[:3] + (probs.shape[-1],))
-        #if morpho1to2:
             
-        if useT1:
+        if rT1TIVfn:
             t1sigma = dbe.fwhm_to_voxel_sigma(t1fwhm, afflist[-1])
-            t1wtiv = os.path.join(vols, 'bdp/dtb_eddy_T1wTIV.nii')
+            t1wtiv = os.path.join(vols, rT1TIVfn)
             svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1] + 1,))
             ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data(), sigma=t1sigma,
                                         output=svecs2[..., -1], mode='nearest')
@@ -420,7 +498,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         # em10 = np.exp(-10)
         # svecs2[..., 4:][svecs2[..., 4:] < em10] = em10
         # svecs2[..., 4:] = 1 + np.log(svecs2[..., 4:])
-        samps, targets = dbe.gather_svm_samples(svecs2, tmask, maxperclass=maxperclass)
+        samps, targets = gather_svm_samples(svecs2, tmask, maxperclass=maxperclass)
         if catsamps is None:
             catsamps = samps
             cattargs = targets
@@ -441,7 +519,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     pfn = label + '.joblib_dump'
     logfn = label + '_training.log'
     res['log'] += "and serialized (pickled) to %s.\n" % pfn
-    joblib.dump(res, pfn)
+    joblib.dump(res, pfn, compress=compress)
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
     return res, pfn, logfn

@@ -25,87 +25,7 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
                                                                  exttext))
     nib.save(mnii, outfn)    
 
-def extract_dmri_brain(data, ecnii, tivfn, bvals, bthresh=300.0, holefill=True,
-                       percentage=75, medrad=1, nmed=2, verbose=True,
-                       maxtissdiffusivity=0.001616, dilate=True,
-                       dilate_before_chopping=1, closerad=3.7,
-                       whiskradinvox=4, Dt=0.0007, DCSF=0.003, brfn='',
-                       isFLAIR=None, svc='RFC_classifier.pickle',
-                       trim_whiskers=True):
-    """
-    Make a brain or TIV mask from 4D diffusion data.
-
-    It selects voxels based on a minimum threshold (not air), maximum
-    diffusivity (not CSF), and location relative to other brain voxels
-    (e.g. hole filling).
-
-    Parameters
-    ----------
-    data: array-like
-        The 4D data.
-    ecnii: array-like
-        The opened nii instance of the data (data = ecnii.get_data())
-    tivfn: string or None
-        Filename for the TIV-style image.  If blank, no file will be
-        written.
-    bvals: array  (NOT a list!)
-        The diffusion strengths for each volume in data, nominally in
-        s/mm**2.  (Adjust bthresh, Dt, and DCSF if using different units.)
-    bthresh: float
-        Threshold b value between b0s and diffusion volumes.
-    holefill: Boolean
-        Whether or not to fill holes, producing a more TIV-like result.
-        
-    percentage: 
-        No longer used.
-    medrad: float
-        Radius of the median filter relative to the largest voxel size.
-    nmed: int
-        Number of times to run the median filter
-    verbose: Boolean
-        Make it chattier.
-    maxtissdiffusivity: 
-        No longer used.
-    dilate: Bool or float
-        If >= 1, dilate with this radius (relative to the largest voxel size).
-        If True, use medrad * nmed.
-        If between 0 and 1, dilate by a voxel.
-    dilate_before_chopping: float
-        If >= 1, dilate _the_copy_used_for_finding_the_largest_connected_component_
-        with this * the largest voxel size before removing disconnected components.
-        1 is highly recommended - less can chop off important things, and more can
-        connect unwanted things like eyeballs and jowls.
-    closerad: float
-    whiskradinvox: float
-        Scale relative to the largest voxel dimension of data.
-    Dt: float
-        The nominal diffusivity of tissue in reciprocal units of bvals. 
-        Depends on temperature.
-    DCSF: float
-        The nominal diffusivity of CSF in reciprocal units of bvals.
-        Depends on temperature, and can be artificially depressed in scans where
-        the b0 CSF is brighter than the maximum int value.
-    brfn: str
-        Filename for the (tightish) brain mask.
-        If not given no image will be saved to disk.
-
-    Outputs
-    -------
-    mask: array-like
-        3D array which is true where there should be brain, and 0 elsewhere.
-    """
-    brain, tiv = get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn,
-                                        bvals, bthresh, medrad, nmed, verbose,
-                                        dilate, dilate_before_chopping,
-                                        closerad, whiskradinvox, Dt, DCSF,
-                                        isFLAIR=isFLAIR, trim_whiskers=trim_whiskers,
-                                        svc=svc)
-    if holefill:
-        return tiv
-    else:
-        return brain
-
-def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, bthresh=300.0,
+def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                            medrad=1, nmed=2, verbose=True, dilate=True,
                            dilate_before_chopping=1, closerad=3.7,
                            whiskradinvox=4, Dt=0.0007, DCSF=0.003,
@@ -132,9 +52,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, bthresh=300.0,
         written.
     bvals: array  (NOT a list!)
         The diffusion strengths for each volume in data, nominally in
-        s/mm**2.  (Adjust bthresh, Dt, and DCSF if using different units.)
-    bthresh: float
-        Threshold b value between b0s and diffusion volumes.
+        s/mm**2.  (Adjust Dt and DCSF if using different units.)
+    relbthresh: float
+        Threshold between b0s and diffusion volumes, as a fraction of
+        max(bvals).
     medrad: float
         Radius of the median filter relative to the largest voxel size.
     nmed: int
@@ -173,30 +94,30 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, bthresh=300.0,
         3D array which is 1 inside the braincase and 0 outside.
     """
     aff = ecnii.get_affine()
-    for d in xrange(3):
-        # Accept up to pi/4 obliqueness.
-        if aff[d, d] < 0.70711 * np.linalg.norm(aff[d, :3]):
-            # The problem seems to be in get_data(), not nib.save()
-            print """
-            Uh Oh: The input data is flipped or rotated by >= pi/4, which would
-            cause inconsistencies in the output. Flip the input around first with
-            fslreorient2std or removeFlipsRots.
-            """
-            return None
+    # for d in xrange(3):
+    #     # Accept up to pi/4 obliqueness.
+    #     if aff[d, d] < 0.70711 * np.linalg.norm(aff[d, :3]):
+    #         # The problem seems to be in get_data(), not nib.save()
+    #         print """
+    #         Uh Oh: The input data is flipped or rotated by >= pi/4, which would
+    #         cause inconsistencies in the output. Flip the input around first with
+    #         fslreorient2std or removeFlipsRots.
+    #         """
+    #         return None
     
     if data is None:
         data = ecnii.get_data()
     assert len(data.shape) == 4
 
     b = np.asarray(bvals)
-    b0 = np.median(data[..., bvals <= bthresh], axis=-1)
+    b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
-    if nmed > 0 and medrad >= 1:
-        # (Spatially) median filter the b0 just for consistency.
-        ball = utils.make_structural_sphere(aff, medrad * maxscale)
-        for i in xrange(nmed):
-            b0 = median_filter(b0, footprint=ball)
+    # if nmed > 0 and medrad >= 1:
+    #     # (Spatially) median filter the b0 just for consistency.
+    #     ball = utils.make_structural_sphere(aff, medrad * maxscale)
+    #     for i in xrange(nmed):
+    #         b0 = median_filter(b0, footprint=ball)
     embDt = np.exp(-b * Dt)
     embDCSF = np.exp(-b * DCSF)
     w = (embDt * (1.0 - embDCSF))**2
@@ -366,7 +287,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, bthresh=300.0,
     if tivfn:
         save_mask(tiv, aff, tivfn, exttext)
     if verbose:
-        print "Done"   # Useful if running in the background on a terminal.
+        # Useful if running in the background on a terminal.
+        print "get_dmri_brain_and_tiv finished"
     return mask, tiv
 
 def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
@@ -463,7 +385,7 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
         errval = e
     return mask, errval
 
-def bcut_from_rel(bvals, relbthresh=0.02):
+def bcut_from_rel(bvals, relbthresh=0.04):
     """
     Given a sequence of b values and a relative b threshhold between
     "undiffusion weighted" and "diffusion weighted", return the absolute b
@@ -473,12 +395,13 @@ def bcut_from_rel(bvals, relbthresh=0.02):
     maxb = np.max(bvals)
     return minb + relbthresh * (maxb - minb)
 
-def calc_average_s0(data, bvals, relbthresh=0.02, bcut=None):
+def calc_average_s0(data, bvals, relbthresh=0.02, bcut=None,
+                    estimator=np.mean):
     if bcut is None:
         bcut = bcut_from_rel(bvals, relbthresh)
-    return data[..., bvals <= bcut].mean(axis=-1)
+    return estimator(data[..., bvals <= bcut], axis=-1)
 
-def make_mean_adje(data, bvals, bthresh=0.02, s0=None, Dt=0.00210, Dcsf=0.00305,
+def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.00305,
                    blankval=0, clamp=30, regscale=0.07):
     """
     Makes an average over volume number of data / s0
@@ -491,7 +414,7 @@ def make_mean_adje(data, bvals, bthresh=0.02, s0=None, Dt=0.00210, Dcsf=0.00305,
     ----------
     data: (nx, ny, nz, nv) array
     bvals: (nv,) array
-    bthresh: float
+    relbthresh: float
         The cutpoint between b0s and DWIs, as a fraction of max(bvals).
         Only used if s0 is None.
     s0: None or (nx, ny, nz) array
@@ -517,7 +440,7 @@ def make_mean_adje(data, bvals, bthresh=0.02, s0=None, Dt=0.00210, Dcsf=0.00305,
         The median of s0[(madje * s0) > otsu(madje * s0)]
     """
     if s0 is None:
-        s0 = calc_average_s0(data, bvals, bthresh)
+        s0 = calc_average_s0(data, bvals, relbthresh)
     rbl = (bvals[bvals > 0] * Dt)**0.5
     et = np.ones(len(bvals))
     et[bvals > 0] = 0.5 * np.pi**0.5 * scipy.special.erf(rbl) / rbl
@@ -544,7 +467,7 @@ def make_mean_adje(data, bvals, bthresh=0.02, s0=None, Dt=0.00210, Dcsf=0.00305,
         madje = np.clip(madje, -clamp, clamp, madje)
     return madje, brightness_scale
 
-def make_feature_vectors(data, aff, bvals, bthresh=0.02, smoothrad=10.0, s0=None,
+def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=None,
                          Dt=0.0021, Dcsf=0.00305, blankval=0, clamp=30,
                          normslop=0.4):
     """
@@ -559,7 +482,7 @@ def make_feature_vectors(data, aff, bvals, bthresh=0.02, smoothrad=10.0, s0=None
     aff: (4, 4) array
         Affine matrix for data
     bvals: (nv,) array
-    bthresh: float
+    relbthresh: float
        The cutpoint between b0s and DWIs, as a fraction of max(bvals).
        Only used if s0 is None.        
     smoothrad: float
@@ -599,7 +522,7 @@ def make_feature_vectors(data, aff, bvals, bthresh=0.02, smoothrad=10.0, s0=None
                        hat of radius smoothrad.
     """
     if s0 is None:
-        s0 = calc_average_s0(data, bvals, bthresh)
+        s0 = calc_average_s0(data, bvals, relbthresh)
     nfeatures = 4                                   # l2amp looks helpful, but empirically it isn't.
     svecs = np.empty(data.shape[:3] + (nfeatures,))
     svecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
@@ -704,7 +627,7 @@ def fill_axial_holes(arr):
     return mask, 0
 
 def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_dump',
-                            bthresh=0.02, smoothrad=13.5, s0=None, Dt=0.00300,
+                            relbthresh=0.04, smoothrad=13.5, s0=None, Dt=0.00300,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
                             t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
@@ -727,7 +650,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         and 3 from np.log10(make_feature_vectors(same parameters)).
         If a str, joblib.load(clf) will be used, looking in . or the same
         directory as this file if necessary.
-    bthresh: float
+    relbthresh: float
         The cutpoint between b0s and DWIs, as a fraction of max(bvals).
         Only used if s0 is None.        
     smoothrad: float
@@ -810,13 +733,13 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
     if isinstance(fvecs, str):
         fvecs = nib.load(fvecs).get_data()
     else:
-        fvecs = make_feature_vectors(data, aff, bvals, bthresh, smoothrad, s0,
+        fvecs = make_feature_vectors(data, aff, bvals, relbthresh, smoothrad, s0,
                                       Dt, Dcsf, blankval, clamp, normslop)
         tlogclamp = 10**logclamp
         fvecs[fvecs < tlogclamp] = tlogclamp
         fvecs = np.log10(fvecs)
-        posterity += "Logarithmic support vectors made with:\n"
-        posterity += "\tbthresh = %f\n" % bthresh
+        posterity += "Feature vectors made with:\n"
+        posterity += "\trelbthresh = %f\n" % relbthresh
         posterity += "\tsmoothrad = %f mm\n" % smoothrad
         posterity += "\tDt = %f\n" % Dt
         posterity += "\tDcsf = %f\n" % Dcsf
