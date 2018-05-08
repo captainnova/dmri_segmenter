@@ -22,6 +22,7 @@ Options:
                           with which to close the mask before filling holes.
                           [default: 3.7]
   -d D --dil=D            Controls dilation.  
+                          **N.B.: it only affects FLAIR DTI!** 
                           If a positive number, it will be used as the radius,
                           relative to the maximum voxel size, to dilate with.
                           If a nonnegative number, no dilation will be done.

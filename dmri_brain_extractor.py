@@ -24,7 +24,66 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     if exttext:
         mnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
                                                                  exttext))
-    nib.save(mnii, outfn)    
+    nib.save(mnii, outfn)
+
+def getFLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
+                verbose=True, closerad=3.7):
+    """
+    Guess at whether data's contrast suppressed free water or not, i.e. return
+    True for FLAIR DTI and False otherwise.  It operates by doing a rough
+    segmentation of brain tissue and CSF, and checking whether the tissue is
+    brighter than CSF for b ~ 0.
+    """
+    b = np.asarray(bvals)
+    b0 = calc_average_s0(data, b, relbthresh, estimator=np.median)
+    scales = utils.voxel_sizes(aff)
+    maxscale = max(scales)
+    embDt = np.exp(-b * Dt)
+    embDCSF = np.exp(-b * DCSF)
+    w = (embDt * (1.0 - embDCSF))**2
+    tisssig = np.zeros(b0.shape)
+    embb0s = {}
+    sw = 0.0
+    for v, emb in enumerate(embDCSF):
+        if emb not in embb0s:
+            embb0s[emb] = emb * b0
+        tisssig += w[v] * (data[..., v] - embb0s[emb])
+        sw += w[v]
+    del embb0s
+    tisssig /= sw
+    
+    # Don't use median_otsu because it assumes isotropic voxels.
+    if nmed > 0:
+        if medrad >= 1:
+            ball = utils.make_structural_sphere(aff, medrad * maxscale)
+            if verbose:
+                print "Median filtering %d times with radius %f." % (nmed,
+                                                                     medrad * maxscale)
+            for i in xrange(nmed):
+                tisssig = median_filter(tisssig, footprint=ball)
+        elif medrad > 0:
+            print "Warning: not median filtering since medrad < 1."
+
+    if verbose:
+        print "Getting the Otsu threshold."
+    thresh = otsu(tisssig)
+    mask = np.zeros(tisssig.shape, np.bool)
+    mask[tisssig >= thresh] = 1
+
+    ball = utils.make_structural_sphere(aff, max(10.0, maxscale))
+    csfmask = utils.binary_closing(mask, ball)
+    gaprad = max(closerad, 2 * maxscale)
+    csfmask, success = fill_holes(csfmask, aff, gaprad, verbose)
+    csfmask = utils.binary_opening(csfmask, ball)
+    csfmask[mask > 0] = 0
+    csfmed = np.median(b0[csfmask > 0])
+    b0tiss = b0[mask > 0]
+
+    # Now we have an approximate brain, and we know it is surrounded by CSF
+    # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
+    # whether CSF is brighter or darker than tissue in the b0.
+    tissmed = np.median(b0tiss)
+    return tissmed > 2.0 * csfmed
 
 def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                            medrad=1, nmed=2, verbose=True, dilate=True,
@@ -67,12 +126,14 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         If >= 1, dilate with this radius (relative to the largest voxel size).
         If True, use medrad * nmed.
         If between 0 and 1, dilate by a voxel.
+        N.B.: It only affects FLAIR DTI!
     dilate_before_chopping: float
         If >= 1, dilate _the_copy_used_for_finding_the_largest_connected_component_
         with this * the largest voxel size before removing disconnected components.
         1 is highly recommended - less can chop off important things, and more can
         connect unwanted things like eyeballs and jowls.
     closerad: float
+        A radius in mm used to close gaps when needed.  Effectively at least 2 * maxscale.
     whiskradinvox: float
         Scale relative to the largest voxel dimension of data.
     Dt: float
@@ -111,71 +172,21 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if len(data.shape) != 4:
         raise ValueError("the input must be 4 dimensional")
 
-    b = np.asarray(bvals)
-    if len(b) != data.shape[-1]:
+    if len(bvals) != data.shape[-1]:
         raise ValueError("the length of bvals, %d, does not match the number of data volumes, %d" %
                          (len(b), data.shape[-1]))
     b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
-    # if nmed > 0 and medrad >= 1:
-    #     # (Spatially) median filter the b0 just for consistency.
-    #     ball = utils.make_structural_sphere(aff, medrad * maxscale)
-    #     for i in xrange(nmed):
-    #         b0 = median_filter(b0, footprint=ball)
-    embDt = np.exp(-b * Dt)
-    embDCSF = np.exp(-b * DCSF)
-    w = (embDt * (1.0 - embDCSF))**2
-    tisssig = np.zeros(b0.shape)
-    embb0s = {}
-    sw = 0.0
-    for v, emb in enumerate(embDCSF):
-        if emb not in embb0s:
-            embb0s[emb] = emb * b0
-        tisssig += w[v] * (data[..., v] - embb0s[emb])
-        sw += w[v]
-    del embb0s
-    tisssig /= sw
-    
-    # Don't use median_otsu because it assumes isotropic voxels.
-    if nmed > 0:
-        if medrad >= 1:
-            ball = utils.make_structural_sphere(aff, medrad * maxscale)
-            if verbose:
-                print "Median filtering %d times with radius %f." % (nmed,
-                                                                     medrad * maxscale)
-            for i in xrange(nmed):
-                tisssig = median_filter(tisssig, footprint=ball)
-        elif medrad > 0:
-            print "Warning: not median filtering since medrad < 1."
-
-    if verbose:
-        print "Getting the Otsu threshold."
-    thresh = otsu(tisssig)
-    mask = np.zeros(tisssig.shape, np.bool)
-    mask[tisssig >= thresh] = 1
-
-    b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
-    ball = utils.make_structural_sphere(aff, max(10.0, maxscale))
-    csfmask = utils.binary_closing(mask, ball)
-    csfmask, success = fill_holes(csfmask, aff, closerad * maxscale, verbose)
-    csfmask = utils.binary_opening(csfmask, ball)
-    csfmask[mask > 0] = 0
-    csfmed = np.median(b0[csfmask > 0])
-    b0tiss = b0[mask > 0]
 
     if isFLAIR is None:
-        # Now we have an approximate brain, and we know it is surrounded by CSF
-        # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
-        # whether CSF is brighter or darker than tissue in the b0.
-        tissmed = np.median(b0tiss)
-        if tissmed > 2.0 * csfmed:
-            isFLAIR = True
-            flair_msg = "This appears to be"
+        isFLAIR = getFLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
+                              verbose=verbose, closerad=closerad)
+        if isFLAIR:
+            flair_msg = "This appears"
         else:
-            isFLAIR = False
-            flair_msg = "This is not"
-        flair_msg += " a FLAIR acquisition"
+            flair_msg = "This does not appear"
+        flair_msg += " to be a FLAIR acquisition"
     else:
         flair_msg = "Treating this as a "
         if not isFLAIR:
@@ -184,10 +195,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if verbose:
         print flair_msg
 
-    purecsf = csfmask.copy()
     if not isFLAIR:
         mask, csfmask, other, holes, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
         tiv = mask + csfmask + other + holes
+        np.clip(tiv, 0, 1, out=tiv)   # holes can overlap with the other classes, producing 2.
     else:
         if dilate_before_chopping >= 1:
             dilrad = dilate_before_chopping * maxscale
@@ -208,6 +219,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                 mask = utils.binary_dilation(mask, ball)
             else:
                 mask = utils.binary_dilation(mask)
+        submsg = ''
 
         # In principle the brain is a hole in the CSF (depending on how you cut off
         # the spine), but in practice this is just a waste of time - it's better to
@@ -242,8 +254,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
 
     if trim_whiskers:
         # More whisker removal
+        gaprad = max(closerad, 2 * maxscale)
+        ball = utils.make_structural_sphere(aff, gaprad)
         omask = utils.binary_dilation(tiv, ball)
-        omask, success = fill_holes(omask, aff, closerad * maxscale, verbose)
+        omask, success = fill_holes(omask, aff, gaprad, verbose)
         csfmask[omask == 0] = 0
         tiv[csfmask > 0] = 1
         tiv, success = fill_holes(tiv, aff, 0, verbose)
@@ -253,7 +267,6 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         tiv = utils.binary_dilation(tiv, ball)
         tiv[omask == 0] = 0
         #tiv = utils.binary_closing(tiv, ball)
-        submsg = ''
 
     exttext  = "Mask made " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n"
     exttext += """
@@ -632,7 +645,7 @@ def fill_axial_holes(arr):
     return mask, 0
 
 def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
-                            relbthresh=0.04, smoothrad=13.5, s0=None, Dt=0.00300,
+                            relbthresh=0.04, smoothrad=13.5, s0=None, Dt=0.0021,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
                             t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
