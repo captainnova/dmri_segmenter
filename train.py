@@ -510,7 +510,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         os.makedirs(label)
     pfn = label + '.pickle'
     logfn = label + '_training.log'
-    res['log'] += "and serialized (pickled) to %s.\n" % pfn
+    res['log'] += "and pickled to %s.\n" % pfn
     #joblib.dump(res, pfn, compress=compress)
     brine.brine(res, pfn)
     with open(logfn, 'w') as lf:
