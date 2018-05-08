@@ -6,13 +6,14 @@ import scipy.ndimage as ndi
 from scipy.ndimage.filters import median_filter, convolve
 import scipy.special
 import scipy.stats as stats
-import sklearn.externals.joblib as joblib
+#import sklearn.externals.joblib as joblib
 from skimage.morphology import reconstruction
 try:
     from skimage.filter import threshold_otsu as otsu
 except:
     from dipy.segment.threshold import otsu
 
+import brine
 import utils
 
 def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
@@ -154,7 +155,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     mask = np.zeros(tisssig.shape, np.bool)
     mask[tisssig >= thresh] = 1
 
-    b0 = np.median(data[..., bvals <= bthresh], axis=-1)
+    b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     ball = utils.make_structural_sphere(aff, max(10.0, maxscale))
     csfmask = utils.binary_closing(mask, ball)
     csfmask, success = fill_holes(csfmask, aff, closerad * maxscale, verbose)
@@ -258,7 +259,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     exttext += """
     by get_dmri_brain_and_tiv(data, %s, brfn, tivfn,
                               bvals=%s,
-                              bthresh=%f,
+                              relbthresh=%f,
                               medrad=%f,
                               nmed=%d,
                               verbose=%s,
@@ -270,11 +271,11 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                               DCSF=%f,
                               trim_whiskers=%s,
                               svc=%s)
-    """ % (ecnii.get_filename(), bvals, bthresh, medrad, nmed,
+    """ % (ecnii.get_filename(), bvals, relbthresh, medrad, nmed,
            verbose, dilate, dilate_before_chopping, closerad,
            whiskradinvox, Dt, DCSF, trim_whiskers, svc)
     exttext += flair_msg + "\n" + submsg
-    exttext = posterity_section(exttext)
+    #exttext = posterity_section(exttext)
     if brfn:
         mask[tiv > 0] = 1  # Recover dark voxels in the right place
         mask[csfmask > 0] = 0
@@ -630,7 +631,7 @@ def fill_axial_holes(arr):
         mask[hmask > 0, z] = 1
     return mask, 0
 
-def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_dump',
+def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
                             relbthresh=0.04, smoothrad=13.5, s0=None, Dt=0.00300,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
@@ -652,7 +653,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
         The (1st stage) feature vector classifier, which must have been already
         trained to segment air, brain tissue, CSF, and other tissue as 0, 1, 2,
         and 3 from np.log10(make_feature_vectors(same parameters)).
-        If a str, joblib.load(clf) will be used, looking in . or the same
+        If a str, brine.debrine(clf) will be used, looking in . or the same
         directory as this file if necessary.
     relbthresh: float
         The cutpoint between b0s and DWIs, as a fraction of max(bvals).
@@ -719,7 +720,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.joblib_du
                 clffn = os.path.join(os.path.dirname(__file__), clffn)
             except:
                 raise ValueError("Could not find %s" % clffn)
-        clf = joblib.load(clffn)
+        clf = brine.debrine(clffn)
         posterity += "Classifier loaded from %s.\n" % clffn        
     if isinstance(clf, dict):
         posterity += "The classifier is a two stage random forest.\n"

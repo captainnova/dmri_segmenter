@@ -5,13 +5,14 @@ import os
 import scipy.ndimage as ndi
 import sys
 from sklearn import ensemble
-import sklearn.externals.joblib as joblib
+#import sklearn.externals.joblib as joblib
 
 try:
     from skimage.filter import threshold_otsu as otsu
 except:
     from dipy.segment.threshold import otsu
 
+import brine
 import dmri_brain_extractor as dbe
 import utils
 
@@ -164,7 +165,7 @@ def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None, useT1=Fals
 
     if outfn is None:
         if custom_label:
-            outfn = fvecsfn.replace('_fvecs', '_' + fvcfn.replace('.joblib_dump', ''))
+            outfn = fvecsfn.replace('_fvecs', '_' + fvcfn.replace('.pickle', ''))
         else:
             outfn = fvecsfn.replace('_fvecs.nii', '_rfcseg.nii')
     outdir, outbase = os.path.split(outfn)
@@ -255,7 +256,7 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
     return samps, np.array(targets), notes
 
 def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
-                        compress=0, srcroot='training', fvfn='dtb_eddy_fvecs.nii',
+                        srcroot='training', fvfn='dtb_eddy_fvecs.nii',
                         segfn='dtb_eddy_T1wTIV_edited_segmentation.nii'):
     """
     Parameters
@@ -264,20 +265,12 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
         Source *directories* with both feature vector and segmented .niis.
     label: str
         The classifier parameters will be written as a modified pickle to
-        RFC_<label>.joblib_dump
+        RFC_<label>.pickle
     maxperclass: int
         The maximum number of samples per class.
     class_weight: str
         See ensemble.RandomForestClassifier, but note that the number of voxels
         in each class is typically fairly imbalanced.
-    compress: int from 0 to 9, optional
-        Compression level for the data. 0 is no compression.
-        We use a compressed filesystem at ADIR and do not want
-        explicit compression.
-        Higher means more compression, but also slower read and
-        write times. Using a value of 3 is often a good compromise.
-        For more details see
-        http://gael-varoquaux.info/programming/new_low-overhead_persistence_in_joblib_for_big_data.html .
     srcroot: str
         Directory holding the directories in srclist.
     fvfn: str
@@ -300,8 +293,8 @@ def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanc
     clf.fit(catsamps, cattargs)
     if label[:4] != 'RFC_':
         label = 'RFC_' + label
-    pfn = label + '.joblib_dump'
-    joblib.dump(clf, pfn)
+    pfn = label + '.pickle'
+    brine.brine(clf, pfn)
     log  = "RandomForestClassifier trained from\n\t"
     log += "\n\t".join(srclist) + "\n"
     log += "with maxperclass = %d\n" % maxperclass
@@ -321,9 +314,9 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
                                     max_depth=12,
                                     min_samples_split=2,
                                     min_samples_leaf=1,
-                                    compress=0,
                                     n_jobs=None, srcroot='training',
-                                    segfn='dtb_eddy_T1wTIV_edited_segmentation.nii'):
+                                    segfn='dtb_eddy_T1wTIV_edited_segmentation.nii',
+                                    min_weight_fraction_leaf=0.01):
     """
     Parameters
     ----------
@@ -333,7 +326,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         directories one per line.
     label: str
         The classifier parameters will be written as a modified pickle to
-        RFC_<label>.joblib_dump
+        RFC_<label>.pickle
     maxperclass: int
         The maximum number of samples per class.
     class_weight: str
@@ -372,14 +365,6 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         The minimum number of samples required to split an internal node.
     min_samples_leaf: int
         The minimum number of samples in newly created leaves.
-    compress: int from 0 to 9, optional
-        Compression level for the output modified pickle. 0 is no compression.
-        We use a compressed filesystem at ADIR and do not want explicit
-        compression.
-        Higher means more compression, but also slower read and
-        write times. Using a value of 3 is often a good compromise.
-        For more details see
-        http://gael-varoquaux.info/programming/new_low-overhead_persistence_in_joblib_for_big_data.html .
     n_jobs: None or int
         The number of parallel jobs to use.  If None it will be determined
         using utils.suggest_number_of_processors().
@@ -460,8 +445,10 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     res['1st stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
                                                        class_weight=class_weight,
                                                        max_features=max_features,
+                                                       max_depth=max_depth,
                                                        min_samples_split=min_samples_split,
                                                        min_samples_leaf=min_samples_leaf,
+                                                       min_weight_fraction_leaf=min_weight_fraction_leaf,
                                                        n_jobs=n_jobs)
     res['1st stage'].fit(catsamps, cattargs)
     res['log']  = "RandomForestClassifiers trained from\n\t"
@@ -508,6 +495,8 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     res['2nd stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
                                                        class_weight=class_weight,
                                                        max_features=max_features,
+                                                       max_depth=max_depth,
+                                                       min_weight_fraction_leaf=min_weight_fraction_leaf,
                                                        min_samples_split=min_samples_split,
                                                        min_samples_leaf=min_samples_leaf,
                                                        n_jobs=n_jobs)
@@ -516,10 +505,14 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     blabel = os.path.basename(label)
     if blabel[:4] != 'RFC_':
         label = label.replace(blabel, 'RFC_' + blabel)
-    pfn = label + '.joblib_dump'
+
+    if not os.path.isdir(label):
+        os.makedirs(label)
+    pfn = label + '.pickle'
     logfn = label + '_training.log'
     res['log'] += "and serialized (pickled) to %s.\n" % pfn
-    joblib.dump(res, pfn, compress=compress)
+    #joblib.dump(res, pfn, compress=compress)
+    brine.brine(res, pfn)
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
     return res, pfn, logfn
