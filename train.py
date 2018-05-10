@@ -1,9 +1,11 @@
+import datetime
 import dipy.io
 import numpy as np
 import nibabel as nib
 import os
 import scipy.ndimage as ndi
 import sys
+import sklearn                  # just to get .__version__
 from sklearn import ensemble
 #import sklearn.externals.joblib as joblib
 
@@ -311,12 +313,12 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
                                     rT1TIVfn=None, t1fwhm=[2.0, 10.0, 2.0],
                                     n_estimators=10,
                                     max_features='auto', # 'auto' = sqrt(n_features)
-                                    max_depth=12,
+                                    max_depth=18,
                                     min_samples_split=2,
                                     min_samples_leaf=1,
                                     n_jobs=None, srcroot='training',
-                                    segfn='dtb_eddy_T1wTIV_edited_segmentation.nii',
-                                    min_weight_fraction_leaf=0.01):
+                                    segfn='dmri_segment_edited.nii',
+                                    min_weight_fraction_leaf=0.001):
     """
     Parameters
     ----------
@@ -506,13 +508,20 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     if blabel[:4] != 'RFC_':
         label = label.replace(blabel, 'RFC_' + blabel)
 
-    if not os.path.isdir(label):
-        os.makedirs(label)
+    #if not os.path.isdir(label):
+    #    os.makedirs(label)
     pfn = label + '.pickle'
     logfn = label + '_training.log'
     res['log'] += "and pickled to %s.\n" % pfn
     #joblib.dump(res, pfn, compress=compress)
     brine.brine(res, pfn)
+
+    res['log'] += "\nClassifier attributes:\n"
+    for k, v in res.iteritems():
+        if k != 'log':
+            res['log'] += "\t%s:\n\t\t%s\n" % (k, v)
+    res['log'] += "\nTrained %s on %s using sklearn %s.\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                                            os.uname()[1], sklearn.__version__)
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
     return res, pfn, logfn
