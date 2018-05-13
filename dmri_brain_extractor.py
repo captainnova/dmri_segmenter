@@ -900,6 +900,15 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     holes[tiv > 0] = 0  # Convert holes from a filled mask to just the holes.
     other[holes > 0] = 1
 
+    # Final cleanup
+    tiv = utils.remove_disconnected_components(tiv + holes, inplace=False)
+    brain[tiv == 0] = 0
+    posterity += _note_progress(brain, "brain after removing disconnections")
+    csf[tiv == 0] = 0
+    posterity += _note_progress(csf, "csf after removing disconnections")
+    other[tiv == 0] = 0
+    posterity += _note_progress(other, "other after removing disconnections")    
+
     lsvmmask = np.zeros_like(brain)
     lsvmmask[brain == 1] = 1
     lsvmmask[csf   == 1] = 2

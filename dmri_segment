@@ -24,7 +24,7 @@ from docopt import docopt
 import train
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
-args = docopt(__doc__, version='1.0.0')
+args = docopt(__doc__, version='1.0.1')
 
 outfn = train.make_segmentation(args['<fvecsfn>'], args['<rfcfn>'], args.get('--custom'),
                                 args.get('--out'), args.get('--t1'))
