@@ -58,24 +58,12 @@ def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
     aff = dwnii.affine
     data = dwnii.get_data()
     
-    fvecs = dbe.make_feature_vectors(data, aff, bvals, smoothrad=smoothrad)
-    tlogclamp = 10**logclamp
-    fvecs[fvecs < tlogclamp] = tlogclamp
-    fvecs = np.log10(fvecs)
-    posterity  = "Logarithmic feature vectors made with:\n"
-    posterity += "\tbthresh = %f\n" % bthresh
-    posterity += "\tsmoothrad = %f mm\n" % smoothrad
-    posterity += "\tDt = %f\n" % Dt
-    posterity += "\tDcsf = %f\n" % Dcsf
-    posterity += "\tblankval = %f\n" % blankval
-    posterity += "\tclamp = %f\n" % clamp
-    posterity += "\tnormslop = %f\n" % normslop
-    posterity += "\tlogclamp = %f\n" % logclamp
+    fvecs, posterity = dbe.make_feature_vectors(data, aff, bvals, smoothrad=smoothrad)
     
     outfn = dwfn.replace('.nii', '_%s.nii' % outlabel)
     outnii = nib.Nifti1Image(fvecs, aff)
     outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
-                                                                     posterity))
+                                                               posterity))
     nib.save(outnii, outfn)
     return outfn
 
@@ -257,68 +245,13 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
         
     return samps, np.array(targets), notes
 
-def train_from_multiple(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
-                        srcroot='training', fvfn='dtb_eddy_fvecs.nii',
-                        segfn='dtb_eddy_T1wTIV_edited_segmentation.nii'):
-    """
-    Parameters
-    ----------
-    srclist: list of strs
-        Source *directories* with both feature vector and segmented .niis.
-    label: str
-        The classifier parameters will be written as a modified pickle to
-        RFC_<label>.pickle
-    maxperclass: int
-        The maximum number of samples per class.
-    class_weight: str
-        See ensemble.RandomForestClassifier, but note that the number of voxels
-        in each class is typically fairly imbalanced.
-    srcroot: str
-        Directory holding the directories in srclist.
-    fvfn: str
-        Name of the feature vectors image in each directory of srclist.
-    segfn: str
-        Name of the segmented image to use for training in each directory of srclist.
-    """
-    for i, src in enumerate(srclist):
-        vols = os.path.join(srcroot, src)
-        svecs = nib.load(os.path.join(vols, fvfn)).get_data()
-        tmask = nib.load(os.path.join(vols, segfn)).get_data()
-        samps, targets = gather_svm_samples(svecs, tmask, maxperclass=maxperclass)
-        if i == 0:
-            catsamps = samps
-            cattargs = targets
-        else:
-            catsamps = np.vstack((catsamps, samps))
-            cattargs = np.concatenate((cattargs, targets))  # vstack doesn't work with 1d arrays.
-    clf = ensemble.RandomForestClassifier(class_weight=class_weight)
-    clf.fit(catsamps, cattargs)
-    if label[:4] != 'RFC_':
-        label = 'RFC_' + label
-    pfn = label + '.pickle'
-    brine.brine(clf, pfn)
-    log  = "RandomForestClassifier trained from\n\t"
-    log += "\n\t".join(srclist) + "\n"
-    log += "with maxperclass = %d\n" % maxperclass
-    log += "and pickled to %s.\n" % pfn
-    logfn = 'training_' + label + '.log'
-    with open(logfn, 'w') as lf:
-        lf.write(log)
-    return pfn, logfn
-
-def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
-                                    class_weight="balanced_subsample",
-                                    smoothrad=10.0, srclist_is_srcdirs=False,
-                                    fvfn='dtb_eddy_fvecs.nii',
-                                    rT1TIVfn=None, t1fwhm=[2.0, 10.0, 2.0],
-                                    n_estimators=10,
-                                    max_features='auto', # 'auto' = sqrt(n_features)
-                                    max_depth=18,
-                                    min_samples_split=2,
-                                    min_samples_leaf=1,
-                                    n_jobs=None, srcroot='training',
-                                    segfn='dmri_segment_edited.nii',
-                                    min_weight_fraction_leaf=0.001):
+def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
+          smoothrad=10.0, srclist_is_srcdirs=False, fvfn='dtb_eddy_fvecs.nii',
+          rT1TIVfn=None, t1fwhm=[2.0, 10.0, 2.0], n_estimators=10,
+          max_features='auto', # 'auto' = sqrt(n_features)
+          max_depth=24, min_samples_split=2, min_samples_leaf=1,
+          n_jobs=None, srcroot='training', segfn='dmri_segment_edited.nii',
+          min_weight_fraction_leaf=0.0001, nstages=2):
     """
     Parameters
     ----------
@@ -336,8 +269,8 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
         in each class is typically fairly imbalanced.
     smoothrad: float
         FWHM in mm of the Gaussian kernel to use for making smoothed class
-        probabilities to append to the feature vectors used in the 2nd stage
-        classification.
+        probabilities to append to the feature vectors used in the 2nd and
+        3rd stage classifications.
     srclist_is_srcdirs: bool
         Iff True, do not prepend srcroot to the directories in srclist.
     fvfn: str
@@ -373,7 +306,10 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     srcroot: str
         Directory holding the directories in srclist.
     segfn: str
-        Name of the segmented image to use for training in each directory of srclist.
+        Name of the segmented image to use for training in each directory of
+        srclist.
+    nstages: int
+        How many stages to train.
 
     WARNING! This assumes that srclist is short, since it holds all of
              srclist's svecs in memory.
@@ -399,6 +335,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     samplist = []
     targlist = []
     volslist = []
+    utils.instaprint("Beginning the 1st stage")
     for src in srclist:
         if not srclist_is_srcdirs:
             vols = os.path.join(srcroot, src)
@@ -443,6 +380,7 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
 
     res['n_features'] = catsamps.shape[-1]
     res['n_classes'] = max(cattargs) + 1
+    res['smoothrad'] = smoothrad
             
     res['1st stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
                                                        class_weight=class_weight,
@@ -456,53 +394,96 @@ def train_both_stages_from_multiple(srclist, label, maxperclass=100000,
     res['log']  = "RandomForestClassifiers trained from\n\t"
     res['log'] += "\n\t".join(srclist) + "\n"
     res['log'] += "with maxperclass = %d each.\n" % maxperclass
-    catsamps = None
-    cattargs = None
-    for svecs, tmask, aff, vols in zip(svecslist, tmasklist, afflist, volslist):
-        svecsr = np.reshape(svecs, (np.prod(svecs.shape[:3]), svecs.shape[3]))
-        probs = res['1st stage'].predict_proba(svecsr)
-        probs = np.reshape(probs, svecs.shape[:3] + (probs.shape[-1],))
-            
-        if rT1TIVfn:
-            t1sigma = dbe.fwhm_to_voxel_sigma(t1fwhm, afflist[-1])
-            t1wtiv = os.path.join(vols, rT1TIVfn)
-            svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1] + 1,))
-            ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data(), sigma=t1sigma,
-                                        output=svecs2[..., -1], mode='nearest')
-        else:
-            svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1],))
-        svecs2[..., :svecs.shape[3]] = svecs
-        sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
-        for v in xrange(probs.shape[-1]):
-            ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + svecs.shape[3]],
-                                        mode='nearest')
-        # svecs2 = np.empty(svecs.shape[:3] + (12,))
-        # svecs2[..., :4] = svecs
-        # sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
-        # for v in xrange(4):
-        #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + 4],
-        #                                 mode='nearest')
-        #     ndi.filters.gaussian_filter(probs[..., v], sigma=2 * sigma, output=svecs2[..., v + 8],
-        #                                 mode='nearest')
-        # em10 = np.exp(-10)
-        # svecs2[..., 4:][svecs2[..., 4:] < em10] = em10
-        # svecs2[..., 4:] = 1 + np.log(svecs2[..., 4:])
-        samps, targets = gather_svm_samples(svecs2, tmask, maxperclass=maxperclass)
-        if catsamps is None:
-            catsamps = samps
-            cattargs = targets
-        else:
-            catsamps = np.vstack((catsamps, samps))
-            cattargs = np.concatenate((cattargs, targets))  # vstack doesn't work with 1d arrays.
-    res['2nd stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
-                                                       class_weight=class_weight,
-                                                       max_features=max_features,
-                                                       max_depth=max_depth,
-                                                       min_weight_fraction_leaf=min_weight_fraction_leaf,
-                                                       min_samples_split=min_samples_split,
-                                                       min_samples_leaf=min_samples_leaf,
-                                                       n_jobs=n_jobs)
-    res['2nd stage'].fit(catsamps, cattargs)
+
+    if nstages > 1:
+        # Train the 2nd stage
+        catsamps = None
+        cattargs = None
+        utils.instaprint("Beginning the 2nd stage")
+        for svecs, tmask, aff, vols in zip(svecslist, tmasklist, afflist, volslist):
+            svecsr = np.reshape(svecs, (np.prod(svecs.shape[:3]), svecs.shape[3]))
+            probs = res['1st stage'].predict_proba(svecsr)
+            probs = np.reshape(probs, svecs.shape[:3] + (probs.shape[-1],))
+
+            if rT1TIVfn:
+                t1sigma = dbe.fwhm_to_voxel_sigma(t1fwhm, afflist[-1])
+                t1wtiv = os.path.join(vols, rT1TIVfn)
+                svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1] + 1,))
+                ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data(), sigma=t1sigma,
+                                            output=svecs2[..., -1], mode='nearest')
+            else:
+                svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1],))
+            svecs2[..., :svecs.shape[3]] = svecs
+            sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
+            for v in xrange(probs.shape[-1]):
+                ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + svecs.shape[3]],
+                                            mode='nearest')
+            # svecs2 = np.empty(svecs.shape[:3] + (12,))
+            # svecs2[..., :4] = svecs
+            # sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
+            # for v in xrange(4):
+            #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + 4],
+            #                                 mode='nearest')
+            #     ndi.filters.gaussian_filter(probs[..., v], sigma=2 * sigma, output=svecs2[..., v + 8],
+            #                                 mode='nearest')
+            # em10 = np.exp(-10)
+            # svecs2[..., 4:][svecs2[..., 4:] < em10] = em10
+            # svecs2[..., 4:] = 1 + np.log(svecs2[..., 4:])
+            samps, targets = gather_svm_samples(svecs2, tmask, maxperclass=maxperclass)
+            if catsamps is None:
+                catsamps = samps
+                cattargs = targets
+            else:
+                catsamps = np.vstack((catsamps, samps))
+                cattargs = np.concatenate((cattargs, targets))  # vstack doesn't work with 1d arrays.
+        res['2nd stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
+                                                           class_weight=class_weight,
+                                                           max_features=max_features,
+                                                           max_depth=max_depth,
+                                                           min_weight_fraction_leaf=min_weight_fraction_leaf,
+                                                           min_samples_split=min_samples_split,
+                                                           min_samples_leaf=min_samples_leaf,
+                                                           n_jobs=n_jobs)
+        res['2nd stage'].fit(catsamps, cattargs)
+
+    if nstages > 2:
+        # Train the 3rd stage
+        catsamps = None
+        cattargs = None
+        utils.instaprint("Beginning the 3rd stage")
+        for svecs, tmask, aff, vols in zip(svecslist, tmasklist, afflist, volslist):
+            seg, probs, clog = dbe.probabilistic_classify(svecs, aff, res,
+                                                          t1wtiv=rT1TIVfn, t1fwhm=t1fwhm)
+
+            augvecs = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1],))
+            augvecs[..., :svecs.shape[-1]] = svecs
+
+            # probs from the 2nd stage is better than probs from the 1st stage, but
+            # less useful than seg, which has benefitted from morphological mojo.
+            # Eschew probs in favor of a smoothed seg.
+            sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
+            for v in xrange(probs.shape[-1]):
+                unsmoothed = np.zeros(seg.shape)
+                unsmoothed[seg == v] = 1.0
+                ndi.filters.gaussian_filter(unsmoothed, sigma=sigma,
+                                            output=augvecs[..., v + svecs.shape[-1]], mode='nearest')
+
+            samps, targets = gather_svm_samples(augvecs, tmask, maxperclass=maxperclass)
+            if catsamps is None:
+                catsamps = samps
+                cattargs = targets
+            else:
+                catsamps = np.vstack((catsamps, samps))
+                cattargs = np.concatenate((cattargs, targets))  # vstack doesn't work with 1d arrays.
+        res['3rd stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
+                                                           class_weight=class_weight,
+                                                           max_features=max_features,
+                                                           max_depth=max_depth,
+                                                           min_weight_fraction_leaf=min_weight_fraction_leaf,
+                                                           min_samples_split=min_samples_split,
+                                                           min_samples_leaf=min_samples_leaf,
+                                                           n_jobs=n_jobs)
+        res['3rd stage'].fit(catsamps, cattargs)
 
     blabel = os.path.basename(label)
     if blabel[:4] != 'RFC_':

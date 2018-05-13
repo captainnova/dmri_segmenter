@@ -2,6 +2,7 @@ from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
 import scipy.ndimage as ndi
+import sys
 
 def _check_img_and_selem(img, structure):
     """
@@ -226,6 +227,10 @@ def get_1_file_or_hurl(pat):
             msg = "Multiple files matched %s:\n  %s" % (pat, "\n  ".join(cands))
         raise ValueError(msg)
     return cands[0]
+
+def instaprint(msg, stream=sys.stdout):
+    stream.write(msg + "\n")
+    stream.flush()
 
 def make_structural_sphere(aff, rad=None):
     """

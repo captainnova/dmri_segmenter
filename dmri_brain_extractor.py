@@ -196,9 +196,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         print flair_msg
 
     if not isFLAIR:
-        mask, csfmask, other, holes, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
-        tiv = mask + csfmask + other + holes
-        np.clip(tiv, 0, 1, out=tiv)   # holes can overlap with the other classes, producing 2.
+        mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
+        tiv = mask + csfmask + other
     else:
         if dilate_before_chopping >= 1:
             dilrad = dilate_before_chopping * maxscale
@@ -252,21 +251,21 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         # Now, to get very dark voxels (putamen), close, and then remove CSF.
         tiv = utils.binary_closing(mask, ball)
 
-    if trim_whiskers:
-        # More whisker removal
-        gaprad = max(closerad, 2 * maxscale)
-        ball = utils.make_structural_sphere(aff, gaprad)
-        omask = utils.binary_dilation(tiv, ball)
-        omask, success = fill_holes(omask, aff, gaprad, verbose)
-        csfmask[omask == 0] = 0
-        tiv[csfmask > 0] = 1
-        tiv, success = fill_holes(tiv, aff, 0, verbose)
-        #ball = utils.make_structural_sphere(aff, dilrad)
-        tiv = utils.binary_erosion(tiv, ball)
-        tiv = utils.remove_disconnected_components(tiv, aff, 0, verbose=verbose)
-        tiv = utils.binary_dilation(tiv, ball)
-        tiv[omask == 0] = 0
-        #tiv = utils.binary_closing(tiv, ball)
+        if trim_whiskers:
+            # More whisker removal
+            gaprad = max(closerad, 2 * maxscale)
+            ball = utils.make_structural_sphere(aff, gaprad)
+            omask = utils.binary_dilation(tiv, ball)
+            omask, success = fill_holes(omask, aff, gaprad, verbose)
+            csfmask[omask == 0] = 0
+            tiv[csfmask > 0] = 1
+            tiv, success = fill_holes(tiv, aff, 0, verbose)
+            #ball = utils.make_structural_sphere(aff, dilrad)
+            tiv = utils.binary_erosion(tiv, ball)
+            tiv = utils.remove_disconnected_components(tiv, aff, 0, verbose=verbose)
+            tiv = utils.binary_dilation(tiv, ball)
+            tiv[omask == 0] = 0
+            #tiv = utils.binary_closing(tiv, ball)
 
     exttext  = "Mask made " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n"
     exttext += """
@@ -487,11 +486,9 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
 
 def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=None,
                          Dt=0.0021, Dcsf=0.00305, blankval=0, clamp=30,
-                         normslop=0.4):
+                         normslop=0.4, logclamp=-10):
     """
-    Make 4D vectors for segmenting data with a SVM.  Technically only the
-    vectors closest to the cutplane are the support vectors, but by making all
-    the classification vectors, the support vectors will be included.
+    Make 4D vectors for segmenting data.
 
     Parameters
     ----------
@@ -527,47 +524,67 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         It should be large enough to include most brain voxels, but small enough
         to exclude most non-brain voxels.
         Since it is a parameter of training data, do not change it!
+    logclamp: float
+        Feature vector values < this (in log10 space) will be set to this.
 
     Output
     ------
-    svecs: (nx, ny, nz, 4) array
+    fvecs: (nx, ny, nz, 4) array
         The classification quantities to use for SVM segmentation.
-        svecs[..., 0]: s0 / median(s0[np.abs(madje - 1) < normslop])
-        svecs[..., 1]: "neighborhood s0", i.e. svecs[..., 0] smoothed with a top
+        fvecs[..., 0]: s0 / median(s0[np.abs(madje - 1) < normslop])
+        fvecs[..., 1]: "neighborhood s0", i.e. fvecs[..., 0] smoothed with a top
                        hat of radius smoothrad.
-        svecs[..., 2]: madje from make_mean_adje().
-        svecs[..., 3]: "neighborhood madje", i.e. svecs[..., 2] smoothed with a top
+        fvecs[..., 2]: madje from make_mean_adje().
+        fvecs[..., 3]: "neighborhood madje", i.e. fvecs[..., 2] smoothed with a top
                        hat of radius smoothrad.
+    posterity: str
+        Information about how fvecs was made.
     """
     if s0 is None:
         s0 = calc_average_s0(data, bvals, relbthresh)
     nfeatures = 4                                   # l2amp looks helpful, but empirically it isn't.
-    svecs = np.empty(data.shape[:3] + (nfeatures,))
-    svecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
+    fvecs = np.empty(data.shape[:3] + (nfeatures,))
+    fvecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
                                                      blankval=blankval, clamp=clamp)
 
-    svecs[..., 0] = s0 / brightness_scale
+    fvecs[..., 0] = s0 / brightness_scale
     
     ball = utils.make_structural_sphere(aff, smoothrad)    
-    median_filter(svecs[..., 2], footprint=ball, output=svecs[..., 3], mode='nearest')
-    median_filter(svecs[..., 0], footprint=ball, output=svecs[..., 1], mode='nearest')
+    median_filter(fvecs[..., 2], footprint=ball, output=fvecs[..., 3], mode='nearest')
+    median_filter(fvecs[..., 0], footprint=ball, output=fvecs[..., 1], mode='nearest')
 
     # if nfeatures > 4:
     #     l2amp = sfa.calc_l2_amp(data, bvals, bvecs, s0=s0, nonorm=True)
-    #     svecs[..., 4] = l2amp
+    #     fvecs[..., 4] = l2amp
     #     #ml2amp = ndi.filters.gaussian_filter(l2amp, 0.5 * smoothrad, mode='nearest')
     #     #adev = ndi.filters.gaussian_filter(np.abs(l2amp - ml2amp), 0.5 * smoothrad, mode='nearest')
-    #     #svecs[..., 5] = np.sqrt(adev + ml2amp)
-    #     median_filter(np.sqrt(l2amp), footprint=ball, output=svecs[..., 5], mode='nearest')
-    return svecs
+    #     #fvecs[..., 5] = np.sqrt(adev + ml2amp)
+    #     median_filter(np.sqrt(l2amp), footprint=ball, output=fvecs[..., 5],
+    #     mode='nearest')
 
-def classify_fvf(svecs, clf, airthresh=0.5, t1_will_be_used=False):
+    tlogclamp = 10**logclamp
+    fvecs[fvecs < tlogclamp] = tlogclamp
+    fvecs = np.log10(fvecs)
+    
+    posterity  = "Feature vectors made with:\n"
+    posterity += "\trelbthresh = %f\n" % relbthresh
+    posterity += "\tsmoothrad = %f mm\n" % smoothrad
+    posterity += "\tDt = %f\n" % Dt
+    posterity += "\tDcsf = %f\n" % Dcsf
+    posterity += "\tblankval = %f\n" % blankval
+    posterity += "\tclamp = %f\n" % clamp
+    posterity += "\tnormslop = %f\n" % normslop
+    posterity += "\tlogclamp = %f\n" % logclamp
+
+    return fvecs, posterity
+
+def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
     """
     Segment a feature vector field using a scikit-learn classifier.
 
     Parameters
     ----------
-    svecs: (nx, ny, nz, nfeatures) array
+    fvecs: (nx, ny, nz, nfeatures) array
         The feature vector field
     clf: sklearn.ensemble.*
         A trained classifier
@@ -575,12 +592,14 @@ def classify_fvf(svecs, clf, airthresh=0.5, t1_will_be_used=False):
     Output
     ------
     segmentation: (nx, ny, nz) array
-        The segmentation
+        The segmentation with classes as integers
+    probs: (nx, ny, nz, nclasses) array
+        The probabilistic segmentation
     """
-    svecsr = np.reshape(svecs, (np.prod(svecs.shape[:3]), svecs.shape[-1]))
+    fvecsr = np.reshape(fvecs, (np.prod(fvecs.shape[:3]), fvecs.shape[-1]))
     if hasattr(clf, 'predict_proba'):
-        probsr = clf.predict_proba(svecsr)
-        probs = np.reshape(probsr, svecs.shape[:3] + (probsr.shape[-1],)).copy()
+        probsr = clf.predict_proba(fvecsr)
+        probs = np.reshape(probsr, fvecs.shape[:3] + (probsr.shape[-1],)).copy()
 
         # Since there are 4 types to segment to (air, brain, csf, and other,
         # 0-3) but one of the questions is more important than the others (is
@@ -596,10 +615,10 @@ def classify_fvf(svecs, clf, airthresh=0.5, t1_will_be_used=False):
         probsr[:, 0][probsr[:, 0] < airthresh] = 0
         mask = clf.classes_.take(np.argmax(probsr, axis=1), axis=0)
     else:
-        mask = clf.predict(svecsr)
+        mask = clf.predict(fvecsr)
         probs = None
 
-    seg = np.reshape(mask, svecs.shape[:3])
+    seg = np.reshape(mask, fvecs.shape[:3])
 
     if t1_will_be_used:
         # Other that is a voxel or so thick is probably other, i.e. tentorium +
@@ -644,149 +663,60 @@ def fill_axial_holes(arr):
         mask[hmask > 0, z] = 1
     return mask, 0
 
-def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
-                            relbthresh=0.04, smoothrad=13.5, s0=None, Dt=0.0021,
-                            Dcsf=0.00305, blankval=0, clamp=30,
-                            normslop=0.2, logclamp=-10, fvecs=None,
-                            t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
+def _note_progress(mask, label):
+    msg = "sum(% 50s):\t%6d" % (label, mask.sum())
+    return msg + "\n"
+
+def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
+                           t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
     """
-    Make at least one feature vector field from data, and use for segmentation
-    with a trained sklearn classifier.
+    Do a probabilistic segmentation.
 
     Parameters
     ----------
-    data: (nx, ny, nz, nv) array
-        Non-FLAIR diffusion data
+    fvecs: (nx, ny, nz, nfeatures) array
+        The feature vector field
     aff: (4, 4) array
-        Affine matrix for data
-    bvals: None or (nv,) array
-        The diffusion weightings for each volume in data.  Only needed if fvecs
-        is not provided.
-    clf: str or sklearn classifier
-        The (1st stage) feature vector classifier, which must have been already
-        trained to segment air, brain tissue, CSF, and other tissue as 0, 1, 2,
-        and 3 from np.log10(make_feature_vectors(same parameters)).
-        If a str, brine.debrine(clf) will be used, looking in . or the same
-        directory as this file if necessary.
-    relbthresh: float
-        The cutpoint between b0s and DWIs, as a fraction of max(bvals).
-        Only used if s0 is None.        
+        Affine matrix for fvecs
+    clf: dict
+        The classifier
     smoothrad: float
         The smoothing radius in mm
-        Since it is a parameter of training data, do not change it!
-    s0: None or (nx, ny, nz) array
-        The average of the b=0 volumes.  Will be made if None.
-    Dt: float
-        The intrinsic diffusivity of periaxonal water parallel to the axons,
-        in reciprocal units of bvals.
-    Dcsf: float
-        The CSF diffusiivity in reciprocal units of bvals.
-    blankval: float
-        Set the output to this wherever s0 is 0.
-    clamp: float
-        Typically some voxels will have ratios of small numbers / tiny numbers,
-        and be ridiculously and pointlessly large.  Since they can easily exceed
-        the data range supported by fslview, it is best to clip them at +- some
-        value well away from 1.  Set to None if you really do not want to clamp.
-    normslop: float
-        s0 needs to be normalized before it can be used with an SVM, so it is 
-        divided by median(s0[np.abs(madje - 1) < normslop]), where madje comes
-        from make_mean_adje().
-        It should be large enough to include most brain voxels, but small enough
-        to exclude most non-brain voxels.
-        Since it is a parameter of training data, do not change it!
-    logclamp: float
-        Feature vector values < this (in log10 space) will be set to this.
-    fvecs: str or None
-        Optional filename of a .nii to load the (1st stage) feature vectors from.
-        If not given, they will be made from data.
-    clf2: None, str, or sklearn classifier
-        An optional 2nd stage classifier.  If this is given, the feature vectors
-        will be augmented with the 1st stage class probabiilties convolved with
-        a 3D Gaussian kernel of FWMH smoothrad.  clf must have a .predict_proba()
-        method (sklearn.ensemble.forest.RandomForestClassifier does, and it is
-        just the fraction of trees voting for each class), and clf2 must have
-        been trained with augmented feature vectors (fvecs followed by the
-        convolved 1st stage probabilities).
+        This legacy parameter is used in training the classifier as well, so
+        it should match for training and classification.  Recent classifiers
+        record their smoothrad and will override anything you set here.
 
     Output
     ------
-    brain: (nx, ny, nz) array of type np.uint8
-        1 where it thinks there is brain tissue and 0 elsewhere.
-    csf: (nx, ny, nz) array of type np.uint8
-        1 where it thinks there is CSF and 0 elsewhere.
-        brain + csf, maybe with hole filling and/or a little closing, should be very TIVish.
-    holes: (nx, ny, nz) array of type np.uint8
-        1 where there were holes, and 0 elsewhere.
+    seg: (nx, ny, nz) int array
+        The non-probabilistic segmentation
+    probs: (nx, ny, nz, nclasses) array
+        The estimated probability of each class.
     posterity: str
-        A description of how the classification was done, i.e. the classifier parameters.
+        Info on how probs was made.
     """
-    posterity = ''
+    lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1wtiv is not None)
     
-    # Hurl early if we can't get a classifier.
-    clffn = None
-    clf2 = None
-    if isinstance(clf, str):
-        clffn = clf
-        if not os.path.isfile(clffn):
-            try:
-                clffn = os.path.join(os.path.dirname(__file__), clffn)
-            except:
-                raise ValueError("Could not find %s" % clffn)
-        clf = brine.debrine(clffn)
-        posterity += "Classifier loaded from %s.\n" % clffn        
-    if isinstance(clf, dict):
-        posterity += "The classifier is a two stage random forest.\n"
-        posterity += clf['log'] + "\n"
-        clf2 = clf['2nd stage']
-        clf = clf['1st stage']
-    if not hasattr(clf, 'predict'):
-        raise ValueError(clffn + " does not contain a valid classifier")
-    if hasattr(clf, 'intercept_'):
-        posterity += "Using support vector classifier:\n%s\n\n" % clf
-        posterity += "Classifier intercept:         %s\n" % clf.intercept_
-        posterity += "Classifier intercept scaling: %s\n" % clf.intercept_scaling
-        posterity += "Classifier coefficients:\n%s\n\n" % clf.coef_
-
-    if isinstance(fvecs, str):
-        fvecs = nib.load(fvecs).get_data()
-    else:
-        fvecs = make_feature_vectors(data, aff, bvals, relbthresh, smoothrad, s0,
-                                      Dt, Dcsf, blankval, clamp, normslop)
-        tlogclamp = 10**logclamp
-        fvecs[fvecs < tlogclamp] = tlogclamp
-        fvecs = np.log10(fvecs)
-        posterity += "Feature vectors made with:\n"
-        posterity += "\trelbthresh = %f\n" % relbthresh
-        posterity += "\tsmoothrad = %f mm\n" % smoothrad
-        posterity += "\tDt = %f\n" % Dt
-        posterity += "\tDcsf = %f\n" % Dcsf
-        posterity += "\tblankval = %f\n" % blankval
-        posterity += "\tclamp = %f\n" % clamp
-        posterity += "\tnormslop = %f\n" % normslop
-        posterity += "\tlogclamp = %f\n" % logclamp
-    lsvmmask, probs = classify_fvf(fvecs, clf, t1wtiv is not None)
-        
-    if clf2 is not None:
-        svecs2 = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
-        svecs2[..., :fvecs.shape[-1]] = fvecs
-        sigma = fwhm_to_voxel_sigma(smoothrad, aff)
-        for v in xrange(probs.shape[-1]):
-            ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
-                                        output=svecs2[..., v + fvecs.shape[-1]], mode='nearest')
-        # svecs2 = np.empty(fvecs.shape[:3] + (12,))
-        # svecs2[..., :4] = fvecs
-        # sigma = fwhm_to_voxel_sigma(smoothrad, aff)
-        # for v in xrange(4):
-        #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
-        #                                 output=svecs2[..., v + 4], mode='nearest')
-        #     ndi.filters.gaussian_filter(probs[..., v], sigma=2 * sigma,
-        #                                 output=svecs2[..., v + 8], mode='nearest')
-        # em10 = np.exp(-10)
-        # svecs2[..., 4:][svecs2[..., 4:] < em10] = em10
-        # svecs2[..., 4:] = 1 + np.log(svecs2[..., 4:])
-        lsvmmask, probs = classify_fvf(svecs2, clf2, t1wtiv is not None)
-        posterity += "\nClassified with a 2nd RFC stage.\n"
+    augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
+    augvecs[..., :fvecs.shape[-1]] = fvecs
+    sigma = fwhm_to_voxel_sigma(smoothrad, aff)
+    for v in xrange(probs.shape[-1]):
+        ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
+                                    output=augvecs[..., v + fvecs.shape[-1]],
+                                    mode='nearest')
+    # augvecs = np.empty(fvecs.shape[:3] + (12,))
+    # augvecs[..., :4] = fvecs
+    # sigma = fwhm_to_voxel_sigma(smoothrad, aff)
+    # for v in xrange(4):
+    #     ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
+    #                                 output=augvecs[..., v + 4], mode='nearest')
+    #     ndi.filters.gaussian_filter(probs[..., v], sigma=2 * sigma,
+    #                                 output=augvecs[..., v + 8], mode='nearest')
+    # em10 = np.exp(-10)
+    # augvecs[..., 4:][augvecs[..., 4:] < em10] = em10
+    # augvecs[..., 4:] = 1 + np.log(augvecs[..., 4:])
+    lsvmmask, probs = classify_fvf(augvecs, clf['2nd stage'], t1wtiv is not None)
+    posterity = "\nClassified with a 2nd RFC stage.\n"
 
     if t1wtiv is not None:
         # Update probs with t1wtiv blurred along the phase encoding direction.
@@ -812,7 +742,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         probs[sprobs < 0.01, 3] = 1
 
         probsr = np.reshape(probs, (np.prod(probs.shape[:3]), probs.shape[-1]))
-        mask = clf.classes_.take(np.argmax(probsr, axis=1), axis=0)
+        mask = clf['2nd stage'].classes_.take(np.argmax(probsr, axis=1), axis=0)
         tempmask = np.reshape(mask, probs.shape[:3])
 
         # Voxels which used to be air but were brought back by t1tiv are likely
@@ -824,18 +754,12 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         lsvmmask = tempmask.copy()
         lsvmmask[mask > 0] = 1
         
-    def squawk(mask, label):
-        # return  # convert squawk to a no-op.
-        msg = "sum(% 50s):\t%6d" % (label, mask.sum())
-        #print msg
-        return msg + "\n"
-
     brain = np.zeros(fvecs.shape[:3], dtype=np.uint8)
     csf = np.zeros(fvecs.shape[:3], dtype=np.uint8)
     brain[lsvmmask == 1] = 1
     csf[lsvmmask == 2] = 1
-    posterity += squawk(brain, "brain before removing disconnected components")
-    posterity += squawk(csf, "csf")
+    posterity += _note_progress(brain, "brain before removing disconnected components")
+    posterity += _note_progress(csf, "csf")
     
     # The brain has to be connected, even if somewhat tenuously.  We can firm
     # that up with dilation by 1 voxel.
@@ -845,7 +769,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     tiv = utils.binary_dilation(brain, ball)
     tiv = utils.remove_disconnected_components(tiv, inplace=False)
     brain[tiv == 0] = 0
-    posterity += squawk(brain, "brain after removing disconnected components")
+    posterity += _note_progress(brain, "brain after removing disconnected components")
     
     # "Other" is necessary to fill in partial volume voxels and dark regions
     # like the globus pallidus.  However, it is the least reliable class coming
@@ -879,53 +803,19 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     # bits = utils.binary_opening(tiv, ball)
     # tiv = utils.remove_disconnected_components(bits, inplace=False)
 
-    tiv = utils.binary_dilation(tiv, ball)
-    tiv[lsvmmask == 0] = 0
-    tiv[holes > 0] = 1
-    bits[tiv > 0] = 0
-    posterity += squawk(bits, "bits")
-    if bits.sum() > 0:
-        ball = utils.make_structural_sphere(aff, maxscale)
-        bits = utils.binary_dilation(bits, ball)
-        tiv[bits > 0] = 0
-    csf[tiv == 0] = 0  # csf that isn't connected to itself or brain isn't CSF.
-    posterity += squawk(csf, "csf after trimming by the dilated TIV")
-    posterity += squawk(other, "other")
-    other[tiv == 0] = 0
-    posterity += squawk(other, "other after trimming by the dilated TIV")
-    #tiv[other > 0] = 1
-    bits = utils.binary_opening(tiv, ball)
-    tiv = utils.remove_disconnected_components(bits, inplace=False)
-    edge = utils.binary_dilation(tiv, ball)
-    edge[tiv > 0] = 0
-    edge[lsvmmask == 0] = 0
-    tiv += edge
-
-    # altered_tiv = utils.binary_dilation(tiv, ball)
-    # altered_tiv = utils.binary_dilation(altered_tiv, ball)
-    # bits[tiv > 0] = 0
-    # altered_tiv[bits > 0] = 0
-    # brain[altered_tiv == 0] = 0
-    # posterity += squawk(brain, "brain after trimming by the dilated TIV")
-    # csf[altered_tiv == 0] = 0
-    # posterity += squawk(csf, "csf after trimming by the dilated TIV")
-    # posterity += squawk(other, "other before trimming by the dilated TIV")
-    # other[altered_tiv == 0] = 0
-    # posterity += squawk(other, "other after trimming by the dilated TIV")
-        
     # Reclassify holes as either brain or csf.
     # closed = utils.binary_closing(brain + csf, ball)
     # holes, success = fill_holes(closed, aff, verbose=False)
     # holes[closed > 0] = 0  # Convert holes from a filled mask to just the holes.
-    posterity += squawk(holes, "holes in brain + csf")
+    posterity += _note_progress(holes, "holes in brain + csf")
     if np.any(holes) and probs is not None:
         brainholes = holes.copy()
         #csfholes = holes.copy()
         brainholes[probs[..., 1] < probs[..., 2]] = 0
         #csfholes[brainholes > 0] = 0
-        posterity += squawk(brain, "brain before reclassifying holes")
+        posterity += _note_progress(brain, "brain before reclassifying holes")
         brain[brainholes > 0] = 1
-        posterity += squawk(other, "other before reclassifying holes")
+        posterity += _note_progress(other, "other before reclassifying holes")
         other[brainholes > 0] = 0
 
         # Other that is in a hole and in a big chunk is probably dark brain.
@@ -935,113 +825,219 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         brain[otherbrain > 0] = 1
         other[otherbrain > 0] = 0
         
-        posterity += squawk(brain, "brain after reclassifying holes")
-        posterity += squawk(other, "other after reclassifying holes")
-        posterity += squawk(csf[brain > 0], "csf[brain > 0]")
-        posterity += squawk(csf, "csf")
+        posterity += _note_progress(brain, "brain after reclassifying holes")
+        posterity += _note_progress(other, "other after reclassifying holes")
+        posterity += _note_progress(csf[brain > 0], "csf[brain > 0]")
+        posterity += _note_progress(csf, "csf")
 
-    if probs is not None:
-        # Restore voxels at the edge of the TIV with prob(air) <= ...
-        # 0.75 is too much.
-        # 0.625 helps a little bit, but is it significant?
+    tiv = utils.binary_dilation(tiv, ball)
+    tiv[lsvmmask == 0] = 0
+    tiv[holes > 0] = 1
+    bits[tiv > 0] = 0
+    posterity += _note_progress(bits, "bits")
+    if bits.sum() > 0:
         ball = utils.make_structural_sphere(aff, maxscale)
-        tiv = brain + csf + other
-        altered_tiv = utils.binary_dilation(tiv, ball)
-        #altered_tiv[tiv > 0] = 0   # Now it's the edge just outside the tiv.
-        probs[..., 0][probs[..., 0] < 0.625] = 0
-        probs = probs.reshape((np.prod(tiv.shape), probs.shape[-1]))
-        if clf2 is None:
-            clf2 = clf
-        seg = clf2.classes_.take(np.argmax(probs, axis=1), axis=0)
-        seg = seg.reshape(tiv.shape)
-        seg[altered_tiv == 0] = 0 
-        seg[tiv > 0] = 0            # Now it's the edge just outside the tiv.
-        brain[seg == 1] = 1
-        posterity += squawk(brain, "brain after growing")
-        csf[seg == 2]   = 1
-        posterity += squawk(csf, "csf after growing")
-        other[seg == 3] = 1
-        posterity += squawk(other, "other after growing")
-        tiv = brain + csf + other
-    
-    # Remove other that is > 2 voxels from brain + csf.
-    ball = utils.make_structural_sphere(aff, 2 * maxscale)
-    altered_tiv = utils.binary_dilation(brain + csf, ball)
-    other[altered_tiv == 0] = 0
-    posterity += squawk(other, "other after trimming by the dilated TIV")
-    
-    # altered_tiv = utils.binary_closing(brain + csf + other, ball)
-    # holes, success = fill_holes(altered_tiv, aff, verbose=False)
-    # holes = utils.binary_opening(holes, ball)
-    # holes = utils.remove_disconnected_components(holes, inplace=True)    
-    # holes[brain > 0] = 0
-    # holes[csf > 0] = 0
-    # holes[other > 0] = 0
+        bits = utils.binary_dilation(bits, ball)
+        tiv[bits > 0] = 0
+    csf[tiv == 0] = 0  # csf that isn't connected to itself or brain isn't CSF.
+    posterity += _note_progress(csf, "csf after trimming by the dilated TIV")
+    posterity += _note_progress(other, "other")
 
     # CSF far away from brain is probably eyeball, so be more aggressive in
     # removing dangly CSF (but watch out for severe atrophy).
     ball = utils.make_structural_sphere(aff, 4 * maxscale)
     #tiv[holes > 0] = 1
-    bits = utils.binary_opening(tiv, ball)
+    bits = utils.binary_opening(brain + csf, ball)  # Do NOT connect with other.
     tiv = utils.remove_disconnected_components(bits, inplace=False)
     bits[tiv > 0] = 0
-    ball = utils.make_structural_sphere(aff, 2 * maxscale)
     if np.any(bits):
+        #ball = utils.make_structural_sphere(aff, 2 * maxscale)
         bits = utils.binary_dilation(bits, ball)    
-        tiv[bits > 0] = 0
-    #tiv[brain > 0] = 1
-    #tiv = utils.binary_closing(tiv, ball)
-    brain[tiv == 0] = 0
-    csf[tiv == 0] = 0
-    other[tiv == 0] = 0
-    # tiv = brain + csf + other
-    # tiv[holes > 0] = 1
+        #tiv[bits > 0] = 0
+        csf[bits > 0] = 0
+        other[bits > 0] = 0
+        posterity += _note_progress(csf, "csf after removing bits")
+        posterity += _note_progress(other, "other after removing bits")
 
-    posterity += squawk(brain, "brain at the end")
-    posterity += squawk(csf, "csf at the end")
-    posterity += squawk(other, "other at the end")
+    # Now there is a good chance that tiv excludes the eyeballs, we want to
+    # remove isolated whiskers of other, but keep large clumps of other near
+    # the brain + csf that is probably biased down brain.
+    optiv = tiv.copy()
+    optiv[other == 1] = 1
+    ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
+    optiv = utils.binary_opening(optiv, ball)
+    utils.remove_disconnected_components(optiv, inplace=True)
+    optiv[tiv > 0] = 1
+    other[optiv == 0] = 0
+    posterity += _note_progress(other, "other after trimming by the dilated TIV")
+
+    # Restore voxels at the edge of the TIV with prob(air) <= ...
+    # 0.75 is too much.
+    # 0.625 helps a little bit, but is it significant?
+    ball = utils.make_structural_sphere(aff, maxscale)
+    tiv = brain + csf + other
+    edge = utils.binary_dilation(tiv, ball)
+    edge[tiv > 0] = 0   # Now it's the edge just outside the tiv.
+    probs[..., 0][probs[..., 0] < 0.625] = 0
+    probs = probs.reshape((np.prod(tiv.shape), probs.shape[-1]))
+
+    clf2 = clf.get('2nd stage', clf['1st stage'])
+    seg = clf2.classes_.take(np.argmax(probs, axis=1), axis=0)
+    seg = seg.reshape(tiv.shape)
+    seg[edge == 0] = 0 
+    brain[seg == 1] = 1
+    posterity += _note_progress(brain, "brain after growing")
+    csf[seg == 2]   = 1
+    posterity += _note_progress(csf, "csf after growing")
+    other[seg == 3] = 1
+    posterity += _note_progress(other, "other after growing")
+
+    # Some other voxels that were isolated from other other voxels, but
+    # surrounded by brain and csf may have been mistakenly eliminated.
+    # Restore them.
+    tiv = brain + csf + other
+    holes, success = fill_holes(tiv, aff, verbose=False)
+    holes[tiv > 0] = 0  # Convert holes from a filled mask to just the holes.
+    other[holes > 0] = 1
+
+    lsvmmask = np.zeros_like(brain)
+    lsvmmask[brain == 1] = 1
+    lsvmmask[csf   == 1] = 2
+    lsvmmask[other == 1] = 3
     
-    # This doesn't work well at all.
-    #brainpother = brain.copy()
-    #brainpother[lsvmmask == 3] = 1
-    #brainpother = utils.remove_disconnected_components(brainpother)
-    #brain[brainpother == 1] = 1
+    if '3rd stage' in clf:
+        # Now reclassify using the blurred segmentations as morphological priors.
+        for v in xrange(4):
+            unsmoothed = np.zeros(lsvmmask.shape)
+            unsmoothed[lsvmmask == v] = 1.0
+            ndi.filters.gaussian_filter(unsmoothed, sigma=sigma,
+                                        output=augvecs[..., v + fvecs.shape[-1]], mode='nearest')
+        lsvmmask, probs = classify_fvf(augvecs, clf['3rd stage'], t1wtiv is not None)
+    return lsvmmask, probs, posterity
 
-    # # Cut off pial snippets, i.e. "brain" or other outside CSF.
-    # No! Don't do that, because of partial voluming.  They could arguably 
-    # be reclassified as CSF, but ultimately they are CSF + skull + pial surface,
-    # so they are not pure CSF - I am leaving them as other for now.
-    # edge = tiv.copy()
-    # altered_tiv = utils.binary_erosion(tiv, ball)
-    # edge[altered_tiv > 0] = 0
-    # dcsf = utils.binary_dilation(csf, ball)
-    # dcsf[csf > 0] = 0
-    # dcsf[edge == 0] = 0
-    # brain[dcsf > 0] = 0
-    # other[dcsf > 0] = 0
-    # shrunk_brain = brain + other
-    # shrunk_brain[holes > 0] = 1
-    # shrunk_brain[edge > 0] = 0
-    # shrunk_brain = utils.binary_dilation(shrunk_brain, ball)
-    # shrunk_brain[csf > 0] = 0
-    # altered_tiv[shrunk_brain > 0] = 1
-    # ball = utils.make_structural_sphere(aff, maxscale)
-    # opened = utils.binary_opening(altered_tiv, ball)
-    # #main_opened = utils.remove_disconnected_components(opened)
-    # #bits = 
-    # #shrunk_brain[altered_tiv == 0] = 0
-    # opened = utils.binary_dilation(opened, ball)
-    # opened[csf > 0] = 0 
-    # brain[lsvmmask == 1] = 1
-    # brain[opened == 0] = 0
-    # other[opened == 0] = 0
-    # tiv = brain + csf + other
-    # tiv[holes > 0] = 1
-    # tiv = utils.binary_opening(tiv, ball)
-    # tiv = utils.remove_disconnected_components(tiv, inplace=True)
-    # tiv = utils.binary_dilation(tiv, ball)
-    # brain[tiv == 0] = 0
-    # csf[tiv == 0] = 0
-    # other[tiv == 0] = 0
-    # holes[tiv == 0] = 0
-    return brain, csf, other, holes, posterity    
+def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
+                            relbthresh=0.04, smoothrad=10.0, s0=None, Dt=0.0021,
+                            Dcsf=0.00305, blankval=0, clamp=30,
+                            normslop=0.2, logclamp=-10, fvecs=None,
+                            t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
+    """
+    Make at least one feature vector field from data, and use for segmentation
+    with a trained sklearn classifier.
+
+    Parameters
+    ----------
+    data: (nx, ny, nz, nv) array
+        Non-FLAIR diffusion data
+    aff: (4, 4) array
+        Affine matrix for data
+    bvals: None or (nv,) array
+        The diffusion weightings for each volume in data.  Only needed if fvecs
+        is not provided.
+    clf: str or dict
+        The (classifier, which must have been already trained to segment air,
+        brain, CSF, and other tissue as 0, 1, 2, and 3 from
+        make_feature_vectors(same parameters).
+        If a str, brine.debrine(clf) will be used, looking in . or the same
+        directory as this file if necessary.
+    relbthresh: float
+        The cutpoint between b0s and DWIs, as a fraction of max(bvals).
+        Only used if s0 is None.        
+    smoothrad: float
+        The smoothing radius in mm
+        This legacy parameter is used in training the classifier as well, so
+        it should match for training and classification.  Recent classifiers
+        record their smoothrad and will override anything you set here.
+    s0: None or (nx, ny, nz) array
+        The average of the b=0 volumes.  Will be made if None.
+    Dt: float
+        The intrinsic diffusivity of periaxonal water parallel to the axons,
+        in reciprocal units of bvals.
+    Dcsf: float
+        The CSF diffusiivity in reciprocal units of bvals.
+    blankval: float
+        Set the output to this wherever s0 is 0.
+    clamp: float
+        Typically some voxels will have ratios of small numbers / tiny numbers,
+        and be ridiculously and pointlessly large.  Since they can easily exceed
+        the data range supported by fslview, it is best to clip them at +- some
+        value well away from 1.  Set to None if you really do not want to clamp.
+    normslop: float
+        s0 needs to be normalized before it can be used with an SVM, so it is 
+        divided by median(s0[np.abs(madje - 1) < normslop]), where madje comes
+        from make_mean_adje().
+        It should be large enough to include most brain voxels, but small enough
+        to exclude most non-brain voxels.
+        Since it is a parameter of training data, do not change it!
+    logclamp: float
+        Feature vector values < this (in log10 space) will be set to this.
+    fvecs: str or None
+        Optional filename of a .nii to load the (1st stage) feature vectors from.
+        If not given, they will be made from data.
+
+    Output
+    ------
+    brain: (nx, ny, nz) array of type np.uint8
+        1 where it thinks there is brain tissue and 0 elsewhere.
+    csf: (nx, ny, nz) array of type np.uint8
+        1 where it thinks there is CSF and 0 elsewhere.
+        brain + csf, maybe with hole filling and/or a little closing, should be very TIVish.
+    holes: (nx, ny, nz) array of type np.uint8
+        1 where there were holes, and 0 elsewhere.
+    posterity: str
+        A description of how the classification was done, i.e. the classifier parameters.
+    """
+    posterity = ''
+    
+    # Hurl early if we can't get a classifier.
+    clffn = None
+    if isinstance(clf, str):
+        clffn = clf
+        if not os.path.isfile(clffn):
+            try:
+                clffn = os.path.join(os.path.dirname(__file__), clffn)
+            except:
+                raise ValueError("Could not find %s" % clffn)
+        clf = brine.debrine(clffn)
+        posterity += "Classifier loaded from %s.\n" % clffn        
+    if '3rd stage' in clf:
+        nstages = 3
+    else:
+        nstages = 2
+    posterity += "The classifier is a %d stage random forest.\n" % nstages
+    posterity += clf['log'] + "\n"
+    if not hasattr(clf['1st stage'], 'predict'):
+        raise ValueError(clffn + " does not contain a valid classifier")
+    if hasattr(clf['1st stage'], 'intercept_'):
+        posterity += "Using support vector classifier:\n%s\n\n" % clf['1st stage']
+        posterity += "Classifier intercept:         %s\n" % clf['1st stage'].intercept_
+        posterity += "Classifier intercept scaling: %s\n" % clf['1st stage'].intercept_scaling
+        posterity += "Classifier coefficients:\n%s\n\n" % clf['1st stage'].coef_
+
+    if isinstance(fvecs, str):
+        fvnii = nib.load(fvecs)
+        fvecs = fvnii.get_data()
+        for ext in fvnii.header.extensions:
+            posterity += str(ext)
+    else:
+        fvecs, fveclog = make_feature_vectors(data, aff, bvals, relbthresh, smoothrad,
+                                              s0, Dt, Dcsf, blankval, clamp, normslop,
+                                              logclamp=logclamp)
+    
+    lsvmmask, probs, clog = probabilistic_classify(fvecs, aff, clf,
+                                                   smoothrad=smoothrad,
+                                                   t1wtiv=t1wtiv,
+                                                   t1fwhm=t1fwhm)
+    posterity += clog
+
+    brain = np.zeros(fvecs.shape[:3], dtype=np.uint8)
+    csf = np.zeros(fvecs.shape[:3], dtype=np.uint8)
+    other = np.zeros(fvecs.shape[:3], dtype=np.uint8)
+    brain[lsvmmask == 1] = 1
+    csf[lsvmmask   == 2] = 1
+    other[lsvmmask == 3] = 1
+
+    posterity += _note_progress(brain, "brain at the end")
+    posterity += _note_progress(csf, "csf at the end")
+    posterity += _note_progress(other, "other at the end")
+
+    return brain, csf, other, posterity    
