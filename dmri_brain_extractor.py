@@ -774,8 +774,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # "Other" is necessary to fill in partial volume voxels and dark regions
     # like the globus pallidus.  However, it is the least reliable class coming
     # out of the RFC.  Other in direct contact with brain is much more reliable
-    # than distant other, and other that has been hole filled (after a closing
-    # operation) can be reclassified as brain.
+    # than distant other, and large chunks of air or other that has been hole
+    # filled (after a closing operation) can be reclassified as brain.
     other = np.zeros_like(tiv)
     other[lsvmmask == 3] = 1
     tiv = brain + csf# + other
@@ -785,9 +785,29 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # fill holes
     #holes, success = fill_holes(closed, aff, verbose=False)
     holes, success = fill_axial_holes(closed)
-    #tiv = brain + csf
     holes[tiv > 0] = 0
-    tiv[holes > 0] = 1
+    # Reclassify holes as brain, csf, or other.
+    posterity += _note_progress(holes, "holes in brain + csf")
+    if np.any(holes) and probs is not None:
+        brainholes = holes.copy()
+        #csfholes = holes.copy()
+        brainholes[probs[..., 1] < probs[..., 2]] = 0
+        #csfholes[brainholes > 0] = 0
+
+        brainholes = utils.binary_opening(brainholes, ball)
+        brainholes = utils.binary_dilation(brainholes, ball)
+        brainholes[holes == 0] = 0
+
+        #posterity += _note_progress(brain, "brain before reclassifying holes")
+        brain[brainholes > 0] = 1
+        posterity += _note_progress(brain, "brain after reclassifying holes")
+        posterity += _note_progress(other, "other before reclassifying holes")
+        other[holes > 0] = 1
+        other[brainholes > 0] = 0
+        posterity += _note_progress(other, "other after reclassifying holes")
+#        posterity += _note_progress(csf[brain > 0], "csf[brain > 0]")
+#        posterity += _note_progress(csf, "csf")
+
     # rm cruft
     bits = utils.binary_opening(tiv, ball)
     tiv = utils.remove_disconnected_components(bits, inplace=False)
@@ -802,33 +822,6 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # # rm cruft
     # bits = utils.binary_opening(tiv, ball)
     # tiv = utils.remove_disconnected_components(bits, inplace=False)
-
-    # Reclassify holes as either brain or csf.
-    # closed = utils.binary_closing(brain + csf, ball)
-    # holes, success = fill_holes(closed, aff, verbose=False)
-    # holes[closed > 0] = 0  # Convert holes from a filled mask to just the holes.
-    posterity += _note_progress(holes, "holes in brain + csf")
-    if np.any(holes) and probs is not None:
-        brainholes = holes.copy()
-        #csfholes = holes.copy()
-        brainholes[probs[..., 1] < probs[..., 2]] = 0
-        #csfholes[brainholes > 0] = 0
-        posterity += _note_progress(brain, "brain before reclassifying holes")
-        brain[brainholes > 0] = 1
-        posterity += _note_progress(other, "other before reclassifying holes")
-        other[brainholes > 0] = 0
-
-        # Other that is in a hole and in a big chunk is probably dark brain.
-        otherbrain = other.copy()
-        otherbrain[holes == 0] = 0
-        otherbrain = utils.binary_opening(otherbrain, ball)
-        brain[otherbrain > 0] = 1
-        other[otherbrain > 0] = 0
-        
-        posterity += _note_progress(brain, "brain after reclassifying holes")
-        posterity += _note_progress(other, "other after reclassifying holes")
-        posterity += _note_progress(csf[brain > 0], "csf[brain > 0]")
-        posterity += _note_progress(csf, "csf")
 
     tiv = utils.binary_dilation(tiv, ball)
     tiv[lsvmmask == 0] = 0

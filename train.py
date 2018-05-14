@@ -34,8 +34,9 @@ trainees = {'RFC 20000 Siemens 0_0': 'rfc_20000_Siemens_0_0.pickle',
 def get_bvals(dwfn, bvalpat='*bval*'):
     """
     Get the diffusion strengths for each volume in dwfn.
-    It assumes there is a b values file matching
-    os.path.splitext(dwfn)[0] + bvalpat.
+    It assumes there is exactly 1 b values file matching either
+    os.path.splitext(dwfn)[0] + bvalpat or just
+    os.path.dirname(dwfn) + bvalpat.
 
     Parameters
     ----------
@@ -46,7 +47,10 @@ def get_bvals(dwfn, bvalpat='*bval*'):
         as an ASCII file in FSL/dipy format.
         There must be exactly 1 match.
     """
-    bvalfn = utils.get_1_file_or_hurl(os.path.splitext(dwfn)[0] + bvalpat)
+    try:
+        bvalfn = utils.get_1_file_or_hurl(os.path.splitext(dwfn)[0] + bvalpat)
+    except:
+        bvalfn = utils.get_1_file_or_hurl(os.path.join(os.path.dirname(dwfn), bvalpat))
     bvals, _ = dipy.io.read_bvals_bvecs(bvalfn, None)
     return bvals
 
@@ -134,28 +138,25 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
         targets += [t] * ntsamps                  # Annotate them 
     return samps, np.array(targets)
 
-def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None, useT1=False):
-    aff = nib.load(fvecsfn).get_affine()
+def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
+                      useT1=False):
+    fnii = nib.load(fvecsfn)
+    aff = fnii.get_affine()
+    fvecs = fnii.get_data()
 
     if useT1:
         t1wtiv = fvecsfn.replace('dtb_eddy_fvecs.nii', 'bdp/dtb_eddy_T1wTIV.nii')
     else:
         t1wtiv = None
-    
+        
     # os.path.abspath is idempotent.
-    brain, csf, other, holes, posterity = dbe.feature_vector_classify(None, aff, None,
-                                                                      clf=os.path.abspath(fvcfn),
-                                                                      fvecs=fvecsfn,
-                                                                      t1wtiv=t1wtiv)
+    clf = brine.debrine(os.path.abspath(fvcfn))
 
-    seg = np.zeros_like(brain)
-    seg[brain > 0] = 1
-    seg[csf > 0] = 2
-    seg[other > 0] = 3
+    seg, probs, posterity = dbe.probabilistic_classify(fvecs, aff, clf, t1wtiv=t1wtiv)
 
     if outfn is None:
         if custom_label:
-            outfn = fvecsfn.replace('_fvecs', '_' + fvcfn.replace('.pickle', ''))
+            outfn = fvecsfn.replace('_fvecs', '_' + os.path.basename(fvcfn).replace('.pickle', ''))
         else:
             outfn = fvecsfn.replace('_fvecs.nii', '_rfcseg.nii')
     outdir, outbase = os.path.split(outfn)
