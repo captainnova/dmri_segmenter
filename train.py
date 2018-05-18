@@ -252,7 +252,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
           max_features='auto', # 'auto' = sqrt(n_features)
           max_depth=24, min_samples_split=2, min_samples_leaf=1,
           n_jobs=None, srcroot='training', segfn='dmri_segment_edited.nii',
-          min_weight_fraction_leaf=0.0001, nstages=2):
+          min_weight_fraction_leaf=5e-5, nstages=2):
     """
     Parameters
     ----------
@@ -354,23 +354,24 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         for c in xrange(nclasses):
             sieve = (targets == c)
             n = sum(sieve)
-            m = samps[sieve, 1].mean()  # 1 for brain
+            m = samps[sieve, 0].mean()  # 0 for s0.
             res['src_properties'][-1].append({'n': n, 's0 level': m})
         samplist.append(samps)
         targlist.append(targets)
 
-    # Recalibrate s0 to bring the samples to a common brightness level.  There
-    # is still potentially a difference in the CSF/brain brightness ratio from
-    # scan to scan if TE varies.
     res['s0 brain level'] = np.average([t[1]['s0 level'] for t in res['src_properties']],   # 1 for brain
                                        weights=[t[1]['n'] for t in res['src_properties']])  # 1 for brain
     catsamps = None
     for i in xrange(len(srclist)):
         targets = targlist[i]
-        props = res['src_properties'][i]
-        delta = props[1]['s0 level'] - res['s0 brain level']
-        samplist[i][:, :1] -= delta
-        svecslist[i][..., :1] -= delta
+
+        # # Recalibrate s0 to bring the samples to a common brightness level.
+        # # There is still potentially a difference in the CSF/brain brightness
+        # # ratio from scan to scan if TE varies.
+        # delta = props[1]['s0 level'] - res['s0 brain level']
+        # props = res['src_properties'][i]
+        # samplist[i][:, :1] -= delta
+        # svecslist[i][..., :1] -= delta
         
         if catsamps is None:
             catsamps = samplist[i]

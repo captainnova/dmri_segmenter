@@ -484,9 +484,59 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
         madje = np.clip(madje, -clamp, clamp, madje)
     return madje, brightness_scale
 
+def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
+    """
+    The edge of the TIV is usually apparent to the eye even when a bad bias
+    field precludes using a constant intensity threshold to pick out the TIV,
+    and the edge can (with care) be normalized to mostly remove the effect of
+    the bias field.
+
+    Parameters
+    ----------
+    s0: array
+        The b ~ 0 brightness, already divided by brightness_scale
+    madje: array
+        Weighted average of the b > 0 volumes divided by s0.
+    softener: float
+        Prevents division by 0.  The smaller the number the more the effect of
+        the bias field is removed, but at the cost of amplifying noise.
+    dr: float, in aff's units.
+        The nominal change in position to use for calculating the gradient.
+        It will be automatically adjusted to account for the actual voxel
+        size.
+    """
+    # Approximate a proton density image by making the CSF and tissue more
+    # isointense.
+    pd = s0 * (1 + 2 * madje)
+
+    voxdims = utils.voxel_sizes(aff)
+
+    # Make dr a suitable compromise between the nominal scale and the actual
+    # voxel size.  Remember that bigger voxels have more partial volume
+    # dilution, so some stretching is needed for them.
+    maxscale = max(voxdims)
+    compscale = np.sqrt(0.5 * (dr**2 + maxscale**2))
+    sigma = compscale / voxdims
+
+    norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
+    norm = np.sqrt(norm**2 + softener**2)
+    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='nearest') / norm
+    thresh = relthresh * otsu(grad)
+    gradmask = np.zeros(s0.shape, dtype=np.uint8)
+    gradmask[grad > thresh] = 1
+    fgmask, _ = fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
+    fgmask[gradmask > 0] = 0
+    utils.remove_disconnected_components(fgmask, inplace=True)
+    ball = utils.make_structural_sphere(aff, 2.0 * compscale)
+    fgmask = utils.binary_dilation(fgmask, ball)
+    fgmask = utils.binary_closing(fgmask, ball)
+    fgmask, success = fill_holes(fgmask, aff, verbose=False)
+
+    return fgmask
+
 def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=None,
                          Dt=0.0021, Dcsf=0.00305, blankval=0, clamp=30,
-                         normslop=0.4, logclamp=-10):
+                         normslop=0.4, logclamp=-10, use_grad=True):
     """
     Make 4D vectors for segmenting data.
 
@@ -542,7 +592,11 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     """
     if s0 is None:
         s0 = calc_average_s0(data, bvals, relbthresh)
-    nfeatures = 4                                   # l2amp looks helpful, but empirically it isn't.
+    if use_grad:
+        nfeatures = 5
+    else:
+        nfeatures = 4                                   # l2amp looks helpful, but empirically it isn't.
+
     fvecs = np.empty(data.shape[:3] + (nfeatures,))
     fvecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
                                                      blankval=blankval, clamp=clamp)
@@ -553,6 +607,11 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     median_filter(fvecs[..., 2], footprint=ball, output=fvecs[..., 3], mode='nearest')
     median_filter(fvecs[..., 0], footprint=ball, output=fvecs[..., 1], mode='nearest')
 
+    if use_grad:
+        gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
+        sigma = smoothrad / utils.voxel_sizes(aff)
+        fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(np.float), sigma, mode='nearest')
+
     # if nfeatures > 4:
     #     l2amp = sfa.calc_l2_amp(data, bvals, bvecs, s0=s0, nonorm=True)
     #     fvecs[..., 4] = l2amp
@@ -561,10 +620,9 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     #     #fvecs[..., 5] = np.sqrt(adev + ml2amp)
     #     median_filter(np.sqrt(l2amp), footprint=ball, output=fvecs[..., 5],
     #     mode='nearest')
-
+    
     tlogclamp = 10**logclamp
-    fvecs[fvecs < tlogclamp] = tlogclamp
-    fvecs = np.log10(fvecs)
+    fvecs[..., :4] = np.log10(np.clip(fvecs[..., :4], tlogclamp, 1.0 / tlogclamp, fvecs[..., :4]))
     
     posterity  = "Feature vectors made with:\n"
     posterity += "\trelbthresh = %f\n" % relbthresh
@@ -575,6 +633,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     posterity += "\tclamp = %f\n" % clamp
     posterity += "\tnormslop = %f\n" % normslop
     posterity += "\tlogclamp = %f\n" % logclamp
+    posterity += "\tuse_grad = %s\n" % use_grad
 
     return fvecs, posterity
 
@@ -685,6 +744,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         This legacy parameter is used in training the classifier as well, so
         it should match for training and classification.  Recent classifiers
         record their smoothrad and will override anything you set here.
+    s0tol: make_feature_vectors() The absolute difference to 
 
     Output
     ------
