@@ -145,8 +145,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         the b0 CSF is brighter than the maximum int value.
     isFLAIR: None or bool
         Whether or not data is a FLAIR diffusion acquisition.  If None, try to
-        determine it from the InversionTime in the DICOM extension (if present) of
-        the nii header and/or the CSF/tissue brightness ratio.
+        determine it from CSF/tissue brightness ratio by doing a (slow)
+        preliminary segmentation.
 
     Outputs
     -------
@@ -608,8 +608,13 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     median_filter(fvecs[..., 0], footprint=ball, output=fvecs[..., 1], mode='nearest')
 
     if use_grad:
+        # The edge of the s0 + 2 madje approximate PD image makes a pretty good
+        # boundary for the TIV, except on the inferior side, so blur it to make
+        # a prior.  But before blurring, close it to avoid demphasizing
+        # susceptibility horns.
         gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
         sigma = smoothrad / utils.voxel_sizes(aff)
+        gbtiv = utils.binary_closing(gbtiv, ball)
         fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(np.float), sigma, mode='nearest')
 
     # if nfeatures > 4:
@@ -851,7 +856,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     if np.any(holes) and probs is not None:
         brainholes = holes.copy()
         #csfholes = holes.copy()
-        brainholes[probs[..., 1] < probs[..., 2]] = 0
+        # Big chunks of other in holes are brain.
+        brainholes[probs[..., 1] + probs[..., 2] < probs[..., 2]] = 0
         #csfholes[brainholes > 0] = 0
 
         brainholes = utils.binary_opening(brainholes, ball)
@@ -869,7 +875,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
 #        posterity += _note_progress(csf, "csf")
 
     # rm cruft
-    bits = utils.binary_opening(tiv, ball)
+    bits = utils.binary_opening(brain + csf, ball)
     tiv = utils.remove_disconnected_components(bits, inplace=False)
     # # Now close by a lot (slow)
     # #ball = utils.make_structural_sphere(aff, smoothrad)
@@ -917,6 +923,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # the brain + csf that is probably biased down brain.
     optiv = tiv.copy()
     optiv[other == 1] = 1
+    if fvecs.shape[-1] > 4:
+        optiv[fvecs[..., 4] > 0.5] = 1  # Use the grad-based TIV
     ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
     optiv = utils.binary_opening(optiv, ball)
     utils.remove_disconnected_components(optiv, inplace=True)
