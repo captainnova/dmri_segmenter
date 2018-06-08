@@ -526,8 +526,9 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
     gradmask[grad > thresh] = 1
     fgmask, _ = fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
     fgmask[gradmask > 0] = 0
-    utils.remove_disconnected_components(fgmask, inplace=True)
     ball = utils.make_structural_sphere(aff, 2.0 * compscale)
+    fgmask = utils.binary_opening(fgmask, ball)
+    utils.remove_disconnected_components(fgmask, inplace=True)
     fgmask = utils.binary_dilation(fgmask, ball)
     fgmask = utils.binary_closing(fgmask, ball)
     fgmask, success = fill_holes(fgmask, aff, verbose=False)
@@ -576,6 +577,10 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         Since it is a parameter of training data, do not change it!
     logclamp: float
         Feature vector values < this (in log10 space) will be set to this.
+    use_grad: bool
+        The edge of the s0 + 2 madje approximate PD image makes a fairly good
+        boundary for the TIV, except on the inferior side, so blur it to make
+        a prior.
 
     Output
     ------
@@ -608,9 +613,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     median_filter(fvecs[..., 0], footprint=ball, output=fvecs[..., 1], mode='nearest')
 
     if use_grad:
-        # The edge of the s0 + 2 madje approximate PD image makes a pretty good
-        # boundary for the TIV, except on the inferior side, so blur it to make
-        # a prior.  But before blurring, close it to avoid demphasizing
+        # Before blurring the grad based TIV, close it to avoid demphasizing
         # susceptibility horns.
         gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
         sigma = smoothrad / utils.voxel_sizes(aff)
