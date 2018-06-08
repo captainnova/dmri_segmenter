@@ -155,7 +155,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     tiv: array-like
         3D array which is 1 inside the braincase and 0 outside.
     """
-    aff = ecnii.get_affine()
+    aff = ecnii.affine
     # for d in xrange(3):
     #     # Accept up to pi/4 obliqueness.
     #     if aff[d, d] < 0.70711 * np.linalg.norm(aff[d, :3]):
@@ -289,17 +289,17 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     exttext += flair_msg + "\n" + submsg
     #exttext = posterity_section(exttext)
     if brfn:
-        mask[tiv > 0] = 1  # Recover dark voxels in the right place
-        mask[csfmask > 0] = 0
-
         if isFLAIR:
+            mask[tiv > 0] = 1  # Recover dark voxels in the right place
+            mask[csfmask > 0] = 0
+
             # Remove blips and whiskers
             ball = utils.make_structural_sphere(aff, maxscale)
             mask = utils.binary_opening(mask, ball)
             mask = utils.remove_disconnected_components(mask, aff, 0)
 
             mask = utils.binary_dilation(mask) # Recover partial CSF voxels.
-            mask[tiv == 0] = 0              # but clamp to the TIV.        
+            mask[tiv == 0] = 0                 # but clamp to the TIV.        
         save_mask(mask, aff, brfn, exttext)
     if tivfn:
         save_mask(tiv, aff, tivfn, exttext)
@@ -661,8 +661,24 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
         The probabilistic segmentation
     """
     fvecsr = np.reshape(fvecs, (np.prod(fvecs.shape[:3]), fvecs.shape[-1]))
+
+    # One bit of fiat here: if there is no signal, we MUST call that voxel
+    # air because it is crucial for the mask to protect downstream
+    # processing from logs of or division by 0.  The 1st stage machine
+    # learning classifier is pretty good at that, but the 2nd isn't.
+    #
+    # fvecs[..., 0] is a clamped log of the signal at b=0.  Technically this
+    # function does not know where the clamp is, but usually it is -10.  Use
+    # the minimum of fvecs[..., 0] as a suggestion, but override it in the case
+    # of cropped input where there is no air.
+    forcedair = fvecsr[:, 0] <= min(-8, 0.8 * np.min(fvecs[..., 0]))
+
     if hasattr(clf, 'predict_proba'):
         probsr = clf.predict_proba(fvecsr)
+
+        probsr[forcedair, 0] = 1
+        probsr[forcedair, 1:] = 0
+
         probs = np.reshape(probsr, fvecs.shape[:3] + (probsr.shape[-1],)).copy()
 
         # Since there are 4 types to segment to (air, brain, csf, and other,
@@ -680,6 +696,7 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
         mask = clf.classes_.take(np.argmax(probsr, axis=1), axis=0)
     else:
         mask = clf.predict(fvecsr)
+        mask[forcedair] = 0
         probs = None
 
     seg = np.reshape(mask, fvecs.shape[:3])
@@ -760,7 +777,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     posterity: str
         Info on how probs was made.
     """
-    lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1wtiv is not None)
+    lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
     
     augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
     augvecs[..., :fvecs.shape[-1]] = fvecs
