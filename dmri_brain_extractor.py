@@ -12,9 +12,69 @@ try:
     from skimage.filter import threshold_otsu as otsu
 except:
     from dipy.segment.threshold import otsu
+import subprocess
 
 import brine
 import utils
+
+# A combination of semantic versioning and the date. I admit that I do not 
+# always remember to update this, so use get_version_info() to also try to
+# get the most recent commit message.
+__version__ = "1.1.0 20180928"
+
+def get_subprocess_output(cmd):
+    """
+    Get the output and stderr of cmd as strs. Basically
+    subprocess.check_output, but subprocess.check_output only became available
+    with python 2.7.
+
+    cmd can be either a list or strs or a str that will be converted
+    into a list of strs with .split(). (NOT shlex.split!)
+
+    If cmd's exit code is nonzero this will raise a CalledProcessError.  The
+    CalledProcessError object will have the return code in the returncode
+    attribute and output in the output attribute.
+    """
+    if isinstance(cmd, str):
+        cmd = cmd.split()
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
+
+    # For some reason subprocess.check_output() explicitly does not use err.
+    # I hope it is a good reason.
+    out, unused_err = p.communicate()
+    retcode = p.poll()
+    if retcode:
+        raise CalledProcessError(retcode, cmd, output=out)
+    return out
+
+def get_version_info(repo_info_cmd="git log --max-count=1"):
+    """
+    Returns a str blurb identifying the version of this file, and if available,
+    the last commit message.
+    """
+    try:
+        filename = __file__
+    except:
+        filename = "dmri_brain_extractor.py"
+    vinfo = filename + " version: " + __version__ + "\n"
+    
+    probable_repo_dir = os.path.dirname(filename)
+    startdir = os.path.abspath(os.curdir)
+    try:
+        os.chdir(probable_repo_dir)
+        repo_info = get_subprocess_output(repo_info_cmd)
+        if repo_info:
+            vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
+            vinfo += "The most recent dmri_segmenter commit was:\n"
+            vinfo += repo_info
+            vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
+    except:
+        # I don't think it's really worth worrying anyone if they installed
+        # this outside of a repository.
+        pass
+    finally:
+        os.chdir(startdir)
+    return vinfo
 
 def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     """
@@ -286,8 +346,9 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     """ % (ecnii.get_filename(), bvals, relbthresh, medrad, nmed,
            verbose, dilate, dilate_before_chopping, closerad,
            whiskradinvox, Dt, DCSF, trim_whiskers, svc)
+    exttext += get_version_info()
     exttext += flair_msg + "\n" + submsg
-    #exttext = posterity_section(exttext)
+
     if brfn:
         if isFLAIR:
             mask[tiv > 0] = 1  # Recover dark voxels in the right place
