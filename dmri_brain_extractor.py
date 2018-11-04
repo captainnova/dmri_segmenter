@@ -76,6 +76,7 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
         os.chdir(startdir)
     return vinfo
 
+
 def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     """
     Saves a numpy array to a nii.
@@ -86,64 +87,114 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
                                                                  exttext))
     nib.save(mnii, outfn)
 
-def getFLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
-                verbose=True, closerad=3.7):
+
+class FLAIRity(object):
     """
-    Guess at whether data's contrast suppressed free water or not, i.e. return
-    True for FLAIR DTI and False otherwise.  It operates by doing a rough
-    segmentation of brain tissue and CSF, and checking whether the tissue is
-    brighter than CSF for b ~ 0.
+    Determines, using the voxel values, and holds whether a dMRI had its CSF
+    suppressed by FLAIR.
+
+    It can be told to skip the determination and just hold the FLAIRity.
     """
-    b = np.asarray(bvals)
-    b0 = calc_average_s0(data, b, relbthresh, estimator=np.median)
-    scales = utils.voxel_sizes(aff)
-    maxscale = max(scales)
-    embDt = np.exp(-b * Dt)
-    embDCSF = np.exp(-b * DCSF)
-    w = (embDt * (1.0 - embDCSF))**2
-    tisssig = np.zeros(b0.shape)
-    embb0s = {}
-    sw = 0.0
-    for v, emb in enumerate(embDCSF):
-        if emb not in embb0s:
-            embb0s[emb] = emb * b0
-        tisssig += w[v] * (data[..., v] - embb0s[emb])
-        sw += w[v]
-    del embb0s
-    tisssig /= sw
-    
-    # Don't use median_otsu because it assumes isotropic voxels.
-    if nmed > 0:
-        if medrad >= 1:
-            ball = utils.make_structural_sphere(aff, medrad * maxscale)
-            if verbose:
-                print "Median filtering %d times with radius %f." % (nmed,
-                                                                     medrad * maxscale)
-            for i in xrange(nmed):
-                tisssig = median_filter(tisssig, footprint=ball)
-        elif medrad > 0:
-            print "Warning: not median filtering since medrad < 1."
+    def __init__(self, data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed,
+                 medrad, verbose=True, closerad=3.7, forced_flairity=None):
+        self.data = data
+        self.aff = aff
+        self.bvals = bvals
+        self.relbthresh = relbthresh
+        self.maxscale = maxscale
+        self.Dt = Dt
+        self.DCSF = DCSF
+        self.nmed = nmed
+        self.medrad = medrad
+        self.verbose = verbose
+        self.closerad = closerad
 
-    if verbose:
-        print "Getting the Otsu threshold."
-    thresh = otsu(tisssig)
-    mask = np.zeros(tisssig.shape, np.bool)
-    mask[tisssig >= thresh] = 1
+        # Initialize self-caching properties
+        self._flairity = forced_flairity
+        self._mask = None
+        self._csfmask = None
 
-    ball = utils.make_structural_sphere(aff, max(10.0, maxscale))
-    csfmask = utils.binary_closing(mask, ball)
-    gaprad = max(closerad, 2 * maxscale)
-    csfmask, success = fill_holes(csfmask, aff, gaprad, verbose)
-    csfmask = utils.binary_opening(csfmask, ball)
-    csfmask[mask > 0] = 0
-    csfmed = np.median(b0[csfmask > 0])
-    b0tiss = b0[mask > 0]
+        
+    @property
+    def flairity(self):
+        if self._flairity is None:
+            self._flairity = self.guessFLAIRity()
+        return self._flairity
 
-    # Now we have an approximate brain, and we know it is surrounded by CSF
-    # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
-    # whether CSF is brighter or darker than tissue in the b0.
-    tissmed = np.median(b0tiss)
-    return tissmed > 2.0 * csfmed
+
+    @property
+    def mask(self):
+        if self._mask is None:
+            self.guessFLAIRity()  # Sets _mask as a side-effect.
+        return self._mask
+
+    @property
+    def csfmask(self):
+        if self._csfmask is None:
+            self.guessFLAIRity()  # Sets _csfmask as a side-effect.
+        return self._csfmask
+
+
+    def guessFLAIRity(self):
+        """
+        Guess at whether data's contrast suppressed free water or not, i.e. return
+        True for FLAIR DTI and False otherwise.  It operates by doing a rough
+        segmentation of brain tissue and CSF, and checking whether the tissue is
+        brighter than CSF for b ~ 0.
+
+        Sets self.mask as a side-effect.
+        """
+        b = np.asarray(self.bvals)
+        b0 = calc_average_s0(self.data, b, self.relbthresh, estimator=np.median)
+        scales = utils.voxel_sizes(self.aff)
+        maxscale = max(scales)
+        embDt = np.exp(-b * self.Dt)
+        embDCSF = np.exp(-b * self.DCSF)
+        w = (embDt * (1.0 - embDCSF))**2
+        tisssig = np.zeros(b0.shape)
+        embb0s = {}
+        sw = 0.0
+        for v, emb in enumerate(embDCSF):
+            if emb not in embb0s:
+                embb0s[emb] = emb * b0
+            tisssig += w[v] * (self.data[..., v] - embb0s[emb])
+            sw += w[v]
+        del embb0s
+        tisssig /= sw
+
+        # Don't use median_otsu because it assumes isotropic voxels.
+        if self.nmed > 0:
+            if self.medrad >= 1:
+                ball = utils.make_structural_sphere(self.aff, self.medrad * self.maxscale)
+                if self.verbose:
+                    print "Median filtering %d times with radius %f." % (self.nmed,
+                                                                         self.medrad * self.maxscale)
+                for i in xrange(self.nmed):
+                    tisssig = median_filter(tisssig, footprint=ball)
+            elif self.medrad > 0:
+                print "Warning: not median filtering since medrad < 1."
+
+        if self.verbose:
+            print "Getting the Otsu threshold."
+        thresh = otsu(tisssig)
+        self._mask = np.zeros(tisssig.shape, np.bool)
+        self._mask[tisssig >= thresh] = 1
+
+        ball = utils.make_structural_sphere(self.aff, max(10.0, self.maxscale))
+        self._csfmask = utils.binary_closing(self._mask, ball)
+        gaprad = max(self.closerad, 2 * self.maxscale)
+        self._csfmask, success = fill_holes(self._csfmask, self.aff, gaprad, self.verbose)
+        self._csfmask = utils.binary_opening(self._csfmask, ball)
+        self._csfmask[self._mask > 0] = 0
+        csfmed = np.median(b0[self._csfmask > 0])
+        b0tiss = b0[self._mask > 0]
+
+        # Now we have an approximate brain, and we know it is surrounded by CSF
+        # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
+        # whether CSF is brighter or darker than tissue in the b0.
+        tissmed = np.median(b0tiss)
+        return tissmed > 2.0 * csfmed
+
 
 def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                            medrad=1, nmed=2, verbose=True, dilate=True,
@@ -239,10 +290,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
 
+    flairness = FLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
+                         verbose=verbose, closerad=closerad, forced_flairity=isFLAIR)
     if isFLAIR is None:
-        isFLAIR = getFLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
-                              verbose=verbose, closerad=closerad)
-        if isFLAIR:
+        if flairness.flairity:
             flair_msg = "This appears"
         else:
             flair_msg = "This does not appear"
@@ -255,7 +306,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if verbose:
         print flair_msg
 
-    if not isFLAIR:
+    if not flairness.flairity:
         mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
         tiv = mask + csfmask + other
     else:
@@ -263,7 +314,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             dilrad = dilate_before_chopping * maxscale
         else:
             dilrad = 0
-        mask = utils.remove_disconnected_components(mask, aff, dilrad, verbose=verbose)
+        mask = utils.remove_disconnected_components(flairness.mask, aff, dilrad, verbose=verbose)
 
         if dilate:
             # Dilate once with a big ball instead of multiple times with a small
@@ -284,8 +335,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         # the spine), but in practice this is just a waste of time - it's better to
         # include dark brain voxels by accepting nonCSF voxels that are mostly
         # surrounded by known brain tissue.
-        # csfholes, success = fill_holes(csfmask, aff, closerad * maxscale, verbose)
-        # csfholes[csfmask > 0] = 0
+        # csfholes, success = fill_holes(flairity.csfmask, aff, closerad * maxscale, verbose)
+        # csfholes[flairity.csfmask > 0] = 0
         # mask[csfholes > 0] = 1
         # mask, success = fill_holes(mask, aff, closerad * maxscale, verbose)
 
@@ -317,8 +368,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             ball = utils.make_structural_sphere(aff, gaprad)
             omask = utils.binary_dilation(tiv, ball)
             omask, success = fill_holes(omask, aff, gaprad, verbose)
-            csfmask[omask == 0] = 0
-            tiv[csfmask > 0] = 1
+            flairity.csfmask[omask == 0] = 0
+            tiv[flairity.csfmask > 0] = 1
             tiv, success = fill_holes(tiv, aff, 0, verbose)
             #ball = utils.make_structural_sphere(aff, dilrad)
             tiv = utils.binary_erosion(tiv, ball)
@@ -350,9 +401,9 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     exttext += flair_msg + "\n" + submsg
 
     if brfn:
-        if isFLAIR:
+        if flairness.flairity:
             mask[tiv > 0] = 1  # Recover dark voxels in the right place
-            mask[csfmask > 0] = 0
+            mask[flairity.csfmask > 0] = 0
 
             # Remove blips and whiskers
             ball = utils.make_structural_sphere(aff, maxscale)
