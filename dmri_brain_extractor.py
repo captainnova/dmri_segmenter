@@ -368,8 +368,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             ball = utils.make_structural_sphere(aff, gaprad)
             omask = utils.binary_dilation(tiv, ball)
             omask, success = fill_holes(omask, aff, gaprad, verbose)
-            flairity.csfmask[omask == 0] = 0
-            tiv[flairity.csfmask > 0] = 1
+            flairness.csfmask[omask == 0] = 0
+            tiv[flairness.csfmask > 0] = 1
             tiv, success = fill_holes(tiv, aff, 0, verbose)
             #ball = utils.make_structural_sphere(aff, dilrad)
             tiv = utils.binary_erosion(tiv, ball)
@@ -403,7 +403,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if brfn:
         if flairness.flairity:
             mask[tiv > 0] = 1  # Recover dark voxels in the right place
-            mask[flairity.csfmask > 0] = 0
+            mask[flairness.csfmask > 0] = 0
 
             # Remove blips and whiskers
             ball = utils.make_structural_sphere(aff, maxscale)
