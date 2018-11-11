@@ -400,7 +400,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
            verbose, dilate, dilate_before_chopping, closerad,
            whiskradinvox, Dt, DCSF, trim_whiskers, svc)
     exttext += "on %s,\n" % socket.gethostname()
-    exttext += "using %s.\n" % sys.version
+    exttext += "using python %s.\n" % sys.version
     exttext += get_version_info()
     exttext += flair_msg + "\n" + submsg
 
