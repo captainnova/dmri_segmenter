@@ -22,7 +22,7 @@ import utils
 # A combination of semantic versioning and the date. I admit that I do not 
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.1.0 20180928"
+__version__ = "1.1.1 20181111"
 
 def get_subprocess_output(cmd):
     """
