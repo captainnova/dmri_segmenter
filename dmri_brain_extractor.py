@@ -12,7 +12,9 @@ try:
     from skimage.filter import threshold_otsu as otsu
 except:
     from dipy.segment.threshold import otsu
+import socket
 import subprocess
+import sys
 
 import brine
 import utils
@@ -397,6 +399,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     """ % (ecnii.get_filename(), bvals, relbthresh, medrad, nmed,
            verbose, dilate, dilate_before_chopping, closerad,
            whiskradinvox, Dt, DCSF, trim_whiskers, svc)
+    exttext += "on %s,\n" % socket.gethostname()
+    exttext += "using %s.\n" % sys.version
     exttext += get_version_info()
     exttext += flair_msg + "\n" + submsg
 
@@ -632,10 +636,14 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
 
     norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
     norm = np.sqrt(norm**2 + softener**2)
-    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='nearest') / norm
+
+    # Use mode='constant' (with implied cval=0) so that the TIV is capped.
+    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
+    
     thresh = relthresh * otsu(grad)
     gradmask = np.zeros(s0.shape, dtype=np.uint8)
     gradmask[grad > thresh] = 1
+
     fgmask, _ = fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
     fgmask[gradmask > 0] = 0
     ball = utils.make_structural_sphere(aff, 2.0 * compscale)
@@ -912,7 +920,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # em10 = np.exp(-10)
     # augvecs[..., 4:][augvecs[..., 4:] < em10] = em10
     # augvecs[..., 4:] = 1 + np.log(augvecs[..., 4:])
-    lsvmmask, probs = classify_fvf(augvecs, clf['2nd stage'], t1wtiv is not None)
+    lsvmmask, probs = classify_fvf(augvecs, clf['2nd stage'], t1_will_be_used=t1wtiv is not None)
     posterity = "\nClassified with a 2nd RFC stage.\n"
 
     if t1wtiv is not None:
