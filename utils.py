@@ -2,7 +2,9 @@ from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
 import scipy.ndimage as ndi
+from skimage.morphology import reconstruction
 import sys
+
 
 def _check_img_and_selem(img, structure):
     """
@@ -207,6 +209,126 @@ def binary_opening(arr, structure=None, out=None, mode='nearest', cval=0.0,
     return binary_dilation(tmp, structure, out=out, mode=mode,
                            cval=cval, origin=origin)
 
+
+def bcut_from_rel(bvals, relbthresh=0.04):
+    """
+    Given a sequence of b values and a relative b threshhold between
+    "undiffusion weighted" and "diffusion weighted", return the absolute b
+    corresponding to the threshhold.
+    """
+    minb = np.min(bvals)
+    maxb = np.max(bvals)
+    return minb + relbthresh * (maxb - minb)
+
+
+def calc_average_s0(data, bvals, relbthresh=0.02, bcut=None,
+                    estimator=np.mean):
+    if bcut is None:
+        bcut = bcut_from_rel(bvals, relbthresh)
+    return estimator(data[..., bvals <= bcut], axis=-1)
+
+
+def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
+    """
+    Fill holes in mask, where holes are defined as places in (a possibly
+    dilated) mask that are False and do not connect to the outside edge of
+    mask's box.
+
+    Parameters
+    ----------
+    msk: array like
+        The binary mask to hole fill.  Will NOT be modified unless inplace is True.
+    aff: array like
+        The affine matrix of mask
+    dilrad: float
+        If > 0, temporarily dilate by this amount (in the units of aff)
+        before hole filling to include regions that are almost or practically
+        holes.
+        N.B.: The dilation does not work well if 0 < dilrad < max pixel dimension,
+              and no check is done for this!
+    verbose: bool
+        Chattiness.
+    inplace: bool
+        Iff True, modify msk in place.
+
+    Output
+    ------
+    mask: array like
+        The input mask with its holes filled.
+    errval: 0 or Exception
+        0: Everything went well
+        1: Undiagnosed error
+        Exception: an at least partially diagnosed error.
+
+        Note that fill_holes does not *throw* an exception on failure,
+        which can be often caused by missing skimage.morphology.reconstruction,
+        so using verbose and/or errval is important to distinguish problems
+        from a simple lack of holes.
+    """
+    errval = 1
+    try:
+        if inplace:
+            mask = msk
+        else:
+            mask = msk.copy()
+        if verbose:
+            print "Filling holes"
+        # Based on http://scikit-image.org/docs/dev/auto_examples/plot_holes_and_peaks.html
+        # hmask = np.zeros(mask.shape)
+        # for z in xrange(mask.shape[2]):
+        #     seed = np.copy(mask[:, :, z])
+        #     seed[1:-1, 1:-1] = 1
+        #     hmask[:, :, z] = reconstruction(seed, mask[:, :, z], method='erosion')
+        # #if verbose:
+        # #    print "Filling holes in coronal slices"
+        # for y in xrange(mask.shape[1]):
+        #     seed = np.copy(mask[:, y, :])
+        #     seed[1:-1, 1:-1] = 1
+        #     hmask[:, y, :] += reconstruction(seed, mask[:, y, :], method='erosion')
+        # #if verbose:
+        # #    print "Filling holes in sagittal slices"
+        # for x in xrange(mask.shape[0]):
+        #     seed = np.copy(mask[x, :, :])
+        #     seed[1:-1, 1:-1] = 1
+        #     hmask[x, :, :] += reconstruction(seed, mask[x, :, :], method='erosion')
+        # mask[hmask > 1] = 1
+
+        if dilrad > 0:
+            ball = make_structural_sphere(aff, dilrad)
+            dmask = binary_closing(mask, ball)
+        else:
+            dmask = mask.copy()
+        seed = dmask.copy()
+        seed[1:-1, 1:-1, 1:-1] = 1
+        hmask = reconstruction(seed, dmask, method='erosion')
+
+        if dilrad > 0:
+            # Remove dmask's dilation and leave just the holes, 
+            hmask = binary_erosion(hmask, ball)
+            #hmask[dmask > 0] = 0
+            # but replace dilation that was part of a hole.
+            #hmask = binary_dilation(hmask, ball)
+
+        mask[hmask > 0] = 1
+        errval = 0
+    except Exception as e:
+        if verbose:
+            print "Problem trying to fill holes:", e
+            print "...continuing anyway..."
+        errval = e
+    return mask, errval
+
+
+def fill_axial_holes(arr):
+    mask = arr.copy()
+    for z in xrange(arr.shape[2]):
+        seed = arr[..., z].copy()
+        seed[1:-1, 1:-1] = 1
+        hmask = reconstruction(seed, mask[..., z], method='erosion')
+        mask[hmask > 0, z] = 1
+    return mask, 0
+
+
 def get_1_file_or_hurl(pat):
     """
     Find exactly 1 glob match for pat, or raise a ValueError.
@@ -228,9 +350,11 @@ def get_1_file_or_hurl(pat):
         raise ValueError(msg)
     return cands[0]
 
+
 def instaprint(msg, stream=sys.stdout):
     stream.write(msg + "\n")
     stream.flush()
+
 
 def make_structural_sphere(aff, rad=None):
     """

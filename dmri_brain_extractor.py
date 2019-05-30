@@ -5,9 +5,7 @@ import os
 import scipy.ndimage as ndi
 from scipy.ndimage.filters import median_filter, convolve
 import scipy.special
-import scipy.stats as stats
 #import sklearn.externals.joblib as joblib
-from skimage.morphology import reconstruction
 try:
     from skimage.filter import threshold_otsu as otsu
 except:
@@ -17,12 +15,14 @@ import subprocess
 import sys
 
 import brine
+from FLAIRity import FLAIRity
 import utils
 
 # A combination of semantic versioning and the date. I admit that I do not 
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.1.1 20181111"
+__version__ = "1.2.1 20190529"
+
 
 def get_subprocess_output(cmd):
     """
@@ -48,6 +48,7 @@ def get_subprocess_output(cmd):
     if retcode:
         raise CalledProcessError(retcode, cmd, output=out)
     return out
+
 
 def get_version_info(repo_info_cmd="git log --max-count=1"):
     """
@@ -88,114 +89,6 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
         mnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
                                                                  exttext))
     nib.save(mnii, outfn)
-
-
-class FLAIRity(object):
-    """
-    Determines, using the voxel values, and holds whether a dMRI had its CSF
-    suppressed by FLAIR.
-
-    It can be told to skip the determination and just hold the FLAIRity.
-    """
-    def __init__(self, data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed,
-                 medrad, verbose=True, closerad=3.7, forced_flairity=None):
-        self.data = data
-        self.aff = aff
-        self.bvals = bvals
-        self.relbthresh = relbthresh
-        self.maxscale = maxscale
-        self.Dt = Dt
-        self.DCSF = DCSF
-        self.nmed = nmed
-        self.medrad = medrad
-        self.verbose = verbose
-        self.closerad = closerad
-
-        # Initialize self-caching properties
-        self._flairity = forced_flairity
-        self._mask = None
-        self._csfmask = None
-
-        
-    @property
-    def flairity(self):
-        if self._flairity is None:
-            self._flairity = self.guessFLAIRity()
-        return self._flairity
-
-
-    @property
-    def mask(self):
-        if self._mask is None:
-            self.guessFLAIRity()  # Sets _mask as a side-effect.
-        return self._mask
-
-    @property
-    def csfmask(self):
-        if self._csfmask is None:
-            self.guessFLAIRity()  # Sets _csfmask as a side-effect.
-        return self._csfmask
-
-
-    def guessFLAIRity(self):
-        """
-        Guess at whether data's contrast suppressed free water or not, i.e. return
-        True for FLAIR DTI and False otherwise.  It operates by doing a rough
-        segmentation of brain tissue and CSF, and checking whether the tissue is
-        brighter than CSF for b ~ 0.
-
-        Sets self.mask as a side-effect.
-        """
-        b = np.asarray(self.bvals)
-        b0 = calc_average_s0(self.data, b, self.relbthresh, estimator=np.median)
-        scales = utils.voxel_sizes(self.aff)
-        maxscale = max(scales)
-        embDt = np.exp(-b * self.Dt)
-        embDCSF = np.exp(-b * self.DCSF)
-        w = (embDt * (1.0 - embDCSF))**2
-        tisssig = np.zeros(b0.shape)
-        embb0s = {}
-        sw = 0.0
-        for v, emb in enumerate(embDCSF):
-            if emb not in embb0s:
-                embb0s[emb] = emb * b0
-            tisssig += w[v] * (self.data[..., v] - embb0s[emb])
-            sw += w[v]
-        del embb0s
-        tisssig /= sw
-
-        # Don't use median_otsu because it assumes isotropic voxels.
-        if self.nmed > 0:
-            if self.medrad >= 1:
-                ball = utils.make_structural_sphere(self.aff, self.medrad * self.maxscale)
-                if self.verbose:
-                    print "Median filtering %d times with radius %f." % (self.nmed,
-                                                                         self.medrad * self.maxscale)
-                for i in xrange(self.nmed):
-                    tisssig = median_filter(tisssig, footprint=ball)
-            elif self.medrad > 0:
-                print "Warning: not median filtering since medrad < 1."
-
-        if self.verbose:
-            print "Getting the Otsu threshold."
-        thresh = otsu(tisssig)
-        self._mask = np.zeros(tisssig.shape, np.bool)
-        self._mask[tisssig >= thresh] = 1
-
-        ball = utils.make_structural_sphere(self.aff, max(10.0, self.maxscale))
-        self._csfmask = utils.binary_closing(self._mask, ball)
-        gaprad = max(self.closerad, 2 * self.maxscale)
-        self._csfmask, success = fill_holes(self._csfmask, self.aff, gaprad, self.verbose)
-        self._csfmask = utils.binary_opening(self._csfmask, ball)
-        self._csfmask[self._mask > 0] = 0
-        csfmed = np.median(b0[self._csfmask > 0])
-        b0tiss = b0[self._mask > 0]
-
-        # Now we have an approximate brain, and we know it is surrounded by CSF
-        # (in vivo) or solution (ex vivo), which we'll call CSF.  Figure out
-        # whether CSF is brighter or darker than tissue in the b0.
-        tissmed = np.median(b0tiss)
-        return tissmed > 2.0 * csfmed
 
 
 def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
@@ -288,7 +181,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if len(bvals) != data.shape[-1]:
         raise ValueError("the length of bvals, %d, does not match the number of data volumes, %d" %
                          (len(b), data.shape[-1]))
-    b0 = calc_average_s0(data, bvals, relbthresh, estimator=np.median)
+    b0 = utils.calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
 
@@ -337,10 +230,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         # the spine), but in practice this is just a waste of time - it's better to
         # include dark brain voxels by accepting nonCSF voxels that are mostly
         # surrounded by known brain tissue.
-        # csfholes, success = fill_holes(flairity.csfmask, aff, closerad * maxscale, verbose)
+        # csfholes, success = utils.fill_holes(flairity.csfmask, aff, closerad * maxscale, verbose)
         # csfholes[flairity.csfmask > 0] = 0
         # mask[csfholes > 0] = 1
-        # mask, success = fill_holes(mask, aff, closerad * maxscale, verbose)
+        # mask, success = utils.fill_holes(mask, aff, closerad * maxscale, verbose)
 
         # Trim any whiskers caused by susceptibility problems.
         whiskrad = whiskradinvox * maxscale
@@ -369,10 +262,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             gaprad = max(closerad, 2 * maxscale)
             ball = utils.make_structural_sphere(aff, gaprad)
             omask = utils.binary_dilation(tiv, ball)
-            omask, success = fill_holes(omask, aff, gaprad, verbose)
+            omask, success = utils.fill_holes(omask, aff, gaprad, verbose)
             flairness.csfmask[omask == 0] = 0
             tiv[flairness.csfmask > 0] = 1
-            tiv, success = fill_holes(tiv, aff, 0, verbose)
+            tiv, success = utils.fill_holes(tiv, aff, 0, verbose)
             #ball = utils.make_structural_sphere(aff, dilrad)
             tiv = utils.binary_erosion(tiv, ball)
             tiv = utils.remove_disconnected_components(tiv, aff, 0, verbose=verbose)
@@ -400,7 +293,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
            verbose, dilate, dilate_before_chopping, closerad,
            whiskradinvox, Dt, DCSF, trim_whiskers, svc)
     exttext += "on %s,\n" % socket.gethostname()
-    exttext += "using python %s.\n" % sys.version
+    exttext += "using python %s,\n" % sys.version
     exttext += get_version_info()
     exttext += flair_msg + "\n" + submsg
 
@@ -424,115 +317,6 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         print "get_dmri_brain_and_tiv finished"
     return mask, tiv
 
-def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
-    """
-    Fill holes in mask, where holes are defined as places in (a possibly
-    dilated) mask that are False and do not connect to the outside edge of
-    mask's box.
-
-    Parameters
-    ----------
-    msk: array like
-        The binary mask to hole fill.  Will NOT be modified unless inplace is True.
-    aff: array like
-        The affine matrix of mask
-    dilrad: float
-        If > 0, temporarily dilate by this amount (in the units of aff)
-        before hole filling to include regions that are almost or practically
-        holes.
-        N.B.: The dilation does not work well if 0 < dilrad < max pixel dimension,
-              and no check is done for this!
-    verbose: bool
-        Chattiness.
-    inplace: bool
-        Iff True, modify msk in place.
-
-    Output
-    ------
-    mask: array like
-        The input mask with its holes filled.
-    errval: 0 or Exception
-        0: Everything went well
-        1: Undiagnosed error
-        Exception: an at least partially diagnosed error.
-
-        Note that fill_holes does not *throw* an exception on failure,
-        which can be often caused by missing skimage.morphology.reconstruction,
-        so using verbose and/or errval is important to distinguish problems
-        from a simple lack of holes.
-    """
-    errval = 1
-    try:
-        if inplace:
-            mask = msk
-        else:
-            mask = msk.copy()
-        if verbose:
-            print "Filling holes"
-        # Based on http://scikit-image.org/docs/dev/auto_examples/plot_holes_and_peaks.html
-        # hmask = np.zeros(mask.shape)
-        # for z in xrange(mask.shape[2]):
-        #     seed = np.copy(mask[:, :, z])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[:, :, z] = reconstruction(seed, mask[:, :, z], method='erosion')
-        # #if verbose:
-        # #    print "Filling holes in coronal slices"
-        # for y in xrange(mask.shape[1]):
-        #     seed = np.copy(mask[:, y, :])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[:, y, :] += reconstruction(seed, mask[:, y, :], method='erosion')
-        # #if verbose:
-        # #    print "Filling holes in sagittal slices"
-        # for x in xrange(mask.shape[0]):
-        #     seed = np.copy(mask[x, :, :])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[x, :, :] += reconstruction(seed, mask[x, :, :], method='erosion')
-        # mask[hmask > 1] = 1
-
-        if dilrad > 0:
-            ball = utils.make_structural_sphere(aff, dilrad)
-            dmask = utils.binary_closing(mask, ball)
-        else:
-            dmask = mask.copy()
-        seed = dmask.copy()
-        seed[1:-1, 1:-1, 1:-1] = 1
-        hmask = reconstruction(seed, dmask, method='erosion')
-
-        if dilrad > 0:
-            # Remove dmask's dilation and leave just the holes, 
-            hmask = utils.binary_erosion(hmask, ball)
-            #hmask[dmask > 0] = 0
-            # but replace dilation that was part of a hole.
-            #hmask = utils.binary_dilation(hmask, ball)
-
-        mask[hmask > 0] = 1
-        errval = 0
-    except ImportError as e:
-        if verbose:
-            print "Could not fill holes because skimage.morphology.reconstruction was not found"
-        errval = e
-    except Exception as e:
-        if verbose:
-            print "Problem trying to fill holes:", e
-            print "...continuing anyway..."
-        errval = e
-    return mask, errval
-
-def bcut_from_rel(bvals, relbthresh=0.04):
-    """
-    Given a sequence of b values and a relative b threshhold between
-    "undiffusion weighted" and "diffusion weighted", return the absolute b
-    corresponding to the threshhold.
-    """
-    minb = np.min(bvals)
-    maxb = np.max(bvals)
-    return minb + relbthresh * (maxb - minb)
-
-def calc_average_s0(data, bvals, relbthresh=0.02, bcut=None,
-                    estimator=np.mean):
-    if bcut is None:
-        bcut = bcut_from_rel(bvals, relbthresh)
-    return estimator(data[..., bvals <= bcut], axis=-1)
 
 def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.00305,
                    blankval=0, clamp=30, regscale=0.07):
@@ -573,7 +357,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
         The median of s0[(madje * s0) > otsu(madje * s0)]
     """
     if s0 is None:
-        s0 = calc_average_s0(data, bvals, relbthresh)
+        s0 = utils.calc_average_s0(data, bvals, relbthresh)
     rbl = (bvals[bvals > 0] * Dt)**0.5
     et = np.ones(len(bvals))
     et[bvals > 0] = 0.5 * np.pi**0.5 * scipy.special.erf(rbl) / rbl
@@ -644,14 +428,14 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
     gradmask = np.zeros(s0.shape, dtype=np.uint8)
     gradmask[grad > thresh] = 1
 
-    fgmask, _ = fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
+    fgmask, _ = utils.fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
     fgmask[gradmask > 0] = 0
     ball = utils.make_structural_sphere(aff, 2.0 * compscale)
     fgmask = utils.binary_opening(fgmask, ball)
     utils.remove_disconnected_components(fgmask, inplace=True)
     fgmask = utils.binary_dilation(fgmask, ball)
     fgmask = utils.binary_closing(fgmask, ball)
-    fgmask, success = fill_holes(fgmask, aff, verbose=False)
+    fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)
 
     return fgmask
 
@@ -716,7 +500,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         Information about how fvecs was made.
     """
     if s0 is None:
-        s0 = calc_average_s0(data, bvals, relbthresh)
+        s0 = utils.calc_average_s0(data, bvals, relbthresh)
     if use_grad:
         nfeatures = 5
     else:
@@ -858,18 +642,11 @@ def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
     scales = utils.voxel_sizes(aff)
     return fwhm_per_sigma * np.asarray(fwhm) / scales
 
-def fill_axial_holes(arr):
-    mask = arr.copy()
-    for z in xrange(arr.shape[2]):
-        seed = arr[..., z].copy()
-        seed[1:-1, 1:-1] = 1
-        hmask = reconstruction(seed, mask[..., z], method='erosion')
-        mask[hmask > 0, z] = 1
-    return mask, 0
 
 def _note_progress(mask, label):
     msg = "sum(% 50s):\t%6d" % (label, mask.sum())
     return msg + "\n"
+
 
 def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
                            t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
@@ -988,8 +765,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
     closed = utils.binary_closing(tiv, ball)
     # fill holes
-    #holes, success = fill_holes(closed, aff, verbose=False)
-    holes, success = fill_axial_holes(closed)
+    #holes, success = utils.fill_holes(closed, aff, verbose=False)
+    holes, success = utils.fill_axial_holes(closed)
     holes[tiv > 0] = 0
     # Reclassify holes as brain, csf, or other.
     posterity += _note_progress(holes, "holes in brain + csf")
@@ -1021,8 +798,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # #ball = utils.make_structural_sphere(aff, smoothrad)
     # closed = utils.binary_closing(tiv, ball)
     # # fill holes
-    # #holes, success = fill_holes(closed, aff, verbose=False)
-    # holes, success = fill_axial_holes(closed)
+    # #holes, success = utils.fill_holes(closed, aff, verbose=False)
+    # holes, success = utils.fill_axial_holes(closed)
     # holes[tiv > 0] = 0
     # tiv[holes > 0] = 1
     # # rm cruft
@@ -1097,7 +874,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # surrounded by brain and csf may have been mistakenly eliminated.
     # Restore them.
     tiv = brain + csf + other
-    holes, success = fill_holes(tiv, aff, verbose=False)
+    holes, success = utils.fill_holes(tiv, aff, verbose=False)
     holes[tiv > 0] = 0  # Convert holes from a filled mask to just the holes.
     other[holes > 0] = 1
 
@@ -1124,6 +901,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
                                         output=augvecs[..., v + fvecs.shape[-1]], mode='nearest')
         lsvmmask, probs = classify_fvf(augvecs, clf['3rd stage'], t1wtiv is not None)
     return lsvmmask, probs, posterity
+
 
 def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
                             relbthresh=0.04, smoothrad=10.0, s0=None, Dt=0.0021,

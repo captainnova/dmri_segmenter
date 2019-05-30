@@ -7,6 +7,7 @@ Make a brain mask for diffusion MRI (dMRI) data.
 
 Usage:
   skullstrip_dmri [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
+  skullstrip_dmri [--verbose=VE] -p <ecfn> <bvals> <tivfn>
   skullstrip_dmri (-h|--help|--version)
 
 Arguments:
@@ -38,6 +39,7 @@ Options:
                           [default: 1]
   -n NM --nmed=NM         Number of times to run the median filter
                           [default: 2]
+  -p --phantom            Use for phantoms.
   -s SVC --svc=SVC        Pickle or joblib dump file holding the classifier
                           parameters. (Not used for FLAIR.)
                           [default: RFC_classifier.pickle]
@@ -54,38 +56,43 @@ import os
 import sys
 
 from dmri_brain_extractor import get_dmri_brain_and_tiv
+from dmri_phantom_extractor import make_phantom_mask
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
-args = docopt(__doc__, version='1.0.0')
+args = docopt(__doc__, version='1.1.0')
 
 try:
     ecnii = nib.load(args['<ecfn>'])
     bvals, junk = read_bvals_bvecs(args['<bvals>'], None)
-    
-    try:
-        dilation = float(args['--dil'])
-        if not dilation > 0:
-            dilation = False
-    except:  # Not a number
-        if args['--dil'][0].lower() in 'ty':
-            dilation = True
-        else:
-            dilation = False
 
-    isFLAIR = None
-    if args['--isFL'] is not None:
+    if args.get('--phantom'):
+        mask = make_phantom_mask(ecnii, bvals)
+        nib.save(nib.Nifti1Image(mask, ecnii.affine), args['<tivfn>'])
+    else:
         try:
-            isFLAIR = bool(int(args['--isFL']))
-        except:
-            raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
-        
-    brain, tiv = get_dmri_brain_and_tiv(ecnii.get_data(), ecnii, brfn=args.get('--brfn'),
-                                        tivfn=args['<tivfn>'], bvals=bvals,
-                                        medrad=float(args['--mr']), nmed=int(args['--nmed']),
-                                        verbose=args['--verbose'], dilate=dilation,
-                                        closerad=float(args['--cr']), isFLAIR=isFLAIR,
-                                        svc=args['--svc'],
-                                        trim_whiskers=not args.get('--whiskers'))
+            dilation = float(args['--dil'])
+            if not dilation > 0:
+                dilation = False
+        except:  # Not a number
+            if args['--dil'][0].lower() in 'ty':
+                dilation = True
+            else:
+                dilation = False
+
+        isFLAIR = None
+        if args['--isFL'] is not None:
+            try:
+                isFLAIR = bool(int(args['--isFL']))
+            except:
+                raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
+
+        brain, tiv = get_dmri_brain_and_tiv(ecnii.get_data(), ecnii, brfn=args.get('--brfn'),
+                                            tivfn=args['<tivfn>'], bvals=bvals,
+                                            medrad=float(args['--mr']), nmed=int(args['--nmed']),
+                                            verbose=args['--verbose'], dilate=dilation,
+                                            closerad=float(args['--cr']), isFLAIR=isFLAIR,
+                                            svc=args['--svc'],
+                                            trim_whiskers=not args.get('--whiskers'))
 except Exception, e:
     if args['--verbose']:
         # Print the traceback
