@@ -60,7 +60,7 @@ def make_phantom_mask(img, bvals, dilrad=1, dtype=np.uint8):
     dwi = np.mean(data[..., bvals >= bcut], axis=-1)
     mask = intensity_mask(s0)
     dmask = intensity_mask(dwi)
-    mask[dwi > 0] = 1
+    mask[dmask > 0] = 1
     voxsize = max(utils.voxel_sizes(dnii.affine))
     dilsize = dilrad * voxsize
     mask, errval = utils.fill_holes(mask, dnii.affine, dilsize)
