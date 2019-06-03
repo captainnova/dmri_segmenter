@@ -401,9 +401,11 @@ def make_structural_sphere(aff, rad=None):
                                        cent[2] + ksign * k] = isin
     return output
 
-def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbose=False):
+
+def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbose=False,
+                                   nkeep=1):
     """
-    Return a version of mask with all but the largest component removed.
+    Return a version of mask with all but the largest nkeep regions removed.
 
     Parameters
     ----------
@@ -423,6 +425,8 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
         Whether to operate on mask in place or return a new array.
     verbose: bool
         Chattiness controller
+    nkeep: int
+        How many regions to keep.
 
     Output
     ------
@@ -442,20 +446,20 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
     if verbose:
         print "Found %d components" % nb_labels
     del cmask
-    # Find the label with the largest volume
-    maxvox = 0
-    blabel = 0
-    for label in xrange(1, nb_labels + 1):
-        nvox = len(labelled[labelled == label])
-        if nvox > maxvox:
-            maxvox = nvox
-            blabel = label
+
+    labels = np.arange(1, nb_labels + 1)
+    sizes = [len(labelled[labelled == label]) for label in labels]
+    keep_indices = np.argpartition(sizes, -nkeep) # O(n), requires numpy >= 1.8
+    
     if inplace:
         mymask = mask
     else:
         mymask = mask.copy()
-    mymask[labelled != blabel] = 0
+    mask[mask > 0] = 0
+    for ki in keep_indices[-nkeep:]:
+        mymask[labelled == labels[ki]] = 1
     return mymask
+
 
 def suggest_number_of_processors(fraction=0.25):
     """

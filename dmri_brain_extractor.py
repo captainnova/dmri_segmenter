@@ -384,7 +384,9 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
         madje = np.clip(madje, -clamp, clamp, madje)
     return madje, brightness_scale
 
-def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
+
+def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
+                        ncomponents=1):
     """
     The edge of the TIV is usually apparent to the eye even when a bad bias
     field precludes using a constant intensity threshold to pick out the TIV,
@@ -404,6 +406,8 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
         The nominal change in position to use for calculating the gradient.
         It will be automatically adjusted to account for the actual voxel
         size.
+    ncomponents: int
+        Keep the ncomponents largest connected regions.
     """
     # Approximate a proton density image by making the CSF and tissue more
     # isointense.
@@ -432,12 +436,13 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5):
     fgmask[gradmask > 0] = 0
     ball = utils.make_structural_sphere(aff, 2.0 * compscale)
     fgmask = utils.binary_opening(fgmask, ball)
-    utils.remove_disconnected_components(fgmask, inplace=True)
+    utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents)
     fgmask = utils.binary_dilation(fgmask, ball)
     fgmask = utils.binary_closing(fgmask, ball)
     fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)
 
     return fgmask
+
 
 def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=None,
                          Dt=0.0021, Dcsf=0.00305, blankval=0, clamp=30,

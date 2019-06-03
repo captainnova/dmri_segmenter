@@ -5,30 +5,8 @@ import dmri_brain_extractor as dbe
 import utils
 
 
-def intensity_mask(img, nsigma=3):
-    """
-    Calculate a mask by threshholding the intensities of img.
-
-    Parameters
-    ----------
-    img: 3d array
-    nsigma: float
-        The threshhold will be min(otsu(img), nsigma * np.std(img[img < otsu]).
-
-    Returns
-    -------
-    mask: 3d array with dtype np.uint8
-        1 where the voxels are "bright enough", 0 elsewhere.
-    """
-    mask = np.zeros(img.shape, np.bool)
-    thresh = dbe.otsu(img)
-    sigma = np.std(img[img < thresh])
-    thresh = max(thresh, nsigma * sigma)
-    mask[img >= thresh] = 1
-    return mask.astype(np.uint8)
-
-
-def make_phantom_mask(img, bvals, dilrad=1, dtype=np.uint8):
+def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
+                      Dt=0.0015, Dcsf=0.0021, ncomponents=2):
     """
     Make a mask for the "interesting" voxels of img.
 
@@ -38,11 +16,23 @@ def make_phantom_mask(img, bvals, dilrad=1, dtype=np.uint8):
         A 4D diffusion MRI NIfTI image, or its filename.
     bvals: array
         The diffusion weightings of each volume in img.
-    dilrad: float
-        How many voxels to close by when filling holes.
-        For anisotropic voxels it uses the maximum extent.
+    closerad: float
+        How many mm to close by at the end. Set it to a bit more than half the
+        thickness of any plastic features you want to include.
     dtype: type
         The data type for the output.
+    Dt: float
+        The axial diffusiivity of the restricted component (if any),
+        in reciprocal units of bvals.
+    Dcsf: float
+        The mean diffusiivity of the unrestricted component,
+        in reciprocal units of bvals. The defaults are suitable for
+        a (mostly) water phantom at ~18C.
+    ncomponents: int > 0
+        The number of separate regions to keep. Two is useful when
+        when the phantom technically only has one compartment, because
+        there may be a plastic tray that makes the scan appear to have
+        two compartments.
 
     Returns
     -------
@@ -56,18 +46,18 @@ def make_phantom_mask(img, bvals, dilrad=1, dtype=np.uint8):
         dnii = img
     data = dnii.get_data()
     s0 = utils.calc_average_s0(data, bvals)
-    bcut = utils.bcut_from_rel(bvals)
-    dwi = np.mean(data[..., bvals >= bcut], axis=-1)
-    mask = intensity_mask(s0)
-    dmask = intensity_mask(dwi)
-    mask[dmask > 0] = 1
-    voxsize = max(utils.voxel_sizes(dnii.affine))
-    dilsize = dilrad * voxsize
-    mask, errval = utils.fill_holes(mask, dnii.affine, dilsize)
+    madje, bscale = dbe.make_mean_adje(data, bvals, Dt=Dt, Dcsf=Dcsf)
+    gtiv = dbe.make_grad_based_TIV(s0, madje, dnii.affine, ncomponents=ncomponents)
 
-    # Remove fluffy noise from the dilation in fill_holes().
-    ball = utils.make_structural_sphere(dnii.affine, dilsize)
-    mask = utils.binary_opening(mask, ball)
+    # gtiv has had hole filling, but for a phantom try harder to fill in dark patches
+    # around plastic structures.
+    ball = utils.make_structural_sphere(dnii.affine, 3 * closerad)
+    rind = utils.binary_dilation(gtiv, ball)
+    rind[gtiv > 0] = 0
+    thresh = dbe.otsu(s0[rind > 0])
+    rind[s0 < thresh] = 0
+    ball = utils.make_structural_sphere(dnii.affine, closerad)
+    mask = utils.binary_closing(gtiv + rind, ball)
     
     return mask.astype(dtype)
     
