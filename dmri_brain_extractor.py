@@ -21,7 +21,7 @@ import utils
 # A combination of semantic versioning and the date. I admit that I do not 
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.2.1 20190529"
+__version__ = "1.2.2 20190610"
 
 
 def get_subprocess_output(cmd):
@@ -180,7 +180,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
 
     if len(bvals) != data.shape[-1]:
         raise ValueError("the length of bvals, %d, does not match the number of data volumes, %d" %
-                         (len(b), data.shape[-1]))
+                         (len(bvals), data.shape[-1]))
     b0 = utils.calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
