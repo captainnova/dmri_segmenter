@@ -449,14 +449,14 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
 
     labels = np.arange(1, nb_labels + 1)
     sizes = [len(labelled[labelled == label]) for label in labels]
-    keep_indices = np.argpartition(sizes, -nkeep) # O(n), requires numpy >= 1.8
+    keep_indices = np.argpartition(sizes, -nkeep)[-nkeep:] # O(n), requires numpy >= 1.8
     
     if inplace:
         mymask = mask
     else:
         mymask = mask.copy()
-    mask[mask > 0] = 0
-    for ki in keep_indices[-nkeep:]:
+    mymask[mask > 0] = 0
+    for ki in keep_indices:
         mymask[labelled == labels[ki]] = 1
     return mymask
 
