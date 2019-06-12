@@ -2,6 +2,10 @@ from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
 import scipy.ndimage as ndi
+try:
+    from skimage.filter import threshold_otsu as otsu
+except:
+    from dipy.segment.threshold import otsu
 from skimage.morphology import reconstruction
 import sys
 
@@ -403,7 +407,7 @@ def make_structural_sphere(aff, rad=None):
 
 
 def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbose=False,
-                                   nkeep=1):
+                                   nkeep=1, weight=None):
     """
     Return a version of mask with all but the largest nkeep regions removed.
 
@@ -425,8 +429,13 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
         Whether to operate on mask in place or return a new array.
     verbose: bool
         Chattiness controller
-    nkeep: int
-        How many regions to keep.
+    nkeep: None or int > 0
+        Keep the nkeep largest components. If None it will be determined by Otsu
+        thresholding the region sizes, optionally weighted by weight.
+    weight: None or array-like
+        An optional image with the same shape as mask which can be used to
+        weight regions if nkeep is None. It is useful for preferring bright
+        medium regions over large regions just above 0.
 
     Output
     ------
@@ -448,7 +457,15 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
     del cmask
 
     labels = np.arange(1, nb_labels + 1)
-    sizes = [len(labelled[labelled == label]) for label in labels]
+    if weight is None:
+        weight = np.ones(mask.shape)
+    sizes = np.array([weight[labelled == label].sum() for label in labels])
+    if nkeep is None:
+        if len(sizes) > 1:
+            thresh = otsu(sizes)
+            nkeep = max(1, len(sizes[sizes > thresh]))
+        else:
+            nkeep = 1
     keep_indices = np.argpartition(sizes, -nkeep)[-nkeep:] # O(n), requires numpy >= 1.8
     
     if inplace:

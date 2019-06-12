@@ -21,7 +21,7 @@ import utils
 # A combination of semantic versioning and the date. I admit that I do not 
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.2.2 20190610"
+__version__ = "1.3.0 20190612"
 
 
 def get_subprocess_output(cmd):
@@ -386,7 +386,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
 
 
 def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
-                        ncomponents=1):
+                        ncomponents=1, is_phantom=False):
     """
     The edge of the TIV is usually apparent to the eye even when a bad bias
     field precludes using a constant intensity threshold to pick out the TIV,
@@ -406,8 +406,9 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
         The nominal change in position to use for calculating the gradient.
         It will be automatically adjusted to account for the actual voxel
         size.
-    ncomponents: int
-        Keep the ncomponents largest connected regions.
+    ncomponents: None or int > 0
+        The number of separate regions to keep, sorted by s0-weighted size.
+        If None it will be determined by Otsu thresholding.
     """
     # Approximate a proton density image by making the CSF and tissue more
     # isointense.
@@ -423,7 +424,8 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     sigma = compscale / voxdims
 
     norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
-    norm = np.sqrt(norm**2 + softener**2)
+    intensity_scale = np.std(pd)
+    norm = np.sqrt(norm**2 + (softener * intensity_scale)**2)
 
     # Use mode='constant' (with implied cval=0) so that the TIV is capped.
     grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
@@ -433,10 +435,16 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     gradmask[grad > thresh] = 1
 
     fgmask, _ = utils.fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
-    fgmask[gradmask > 0] = 0
     ball = utils.make_structural_sphere(aff, 2.0 * compscale)
+    if is_phantom:
+        # Remove the "outside" part of gradmask.
+        fgmask = utils.binary_erosion(fgmask, ball)
+    else:
+        # We need to remove the eyeballs, so remove all of gradmask.
+        fgmask[gradmask > 0] = 0
     fgmask = utils.binary_opening(fgmask, ball)
-    utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents)
+    utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents,
+                                         weight=pd)
     fgmask = utils.binary_dilation(fgmask, ball)
     fgmask = utils.binary_closing(fgmask, ball)
     fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)

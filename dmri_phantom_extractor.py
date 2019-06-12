@@ -6,7 +6,7 @@ import utils
 
 
 def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
-                      Dt=0.0015, Dcsf=0.0021, ncomponents=2):
+                      Dt=0.0015, Dcsf=0.0021, ncomponents=None):
     """
     Make a mask for the "interesting" voxels of img.
 
@@ -28,11 +28,9 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
         The mean diffusiivity of the unrestricted component,
         in reciprocal units of bvals. The defaults are suitable for
         a (mostly) water phantom at ~18C.
-    ncomponents: int > 0
-        The number of separate regions to keep. Two is useful when
-        when the phantom technically only has one compartment, because
-        there may be a plastic tray that makes the scan appear to have
-        two compartments.
+    ncomponents: None or int > 0
+        The number of separate regions to keep. If None it will be determined
+        by Otsu thresholding between large bright and small dim regions.
 
     Returns
     -------
@@ -47,7 +45,8 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
     data = dnii.get_data()
     s0 = utils.calc_average_s0(data, bvals)
     madje, bscale = dbe.make_mean_adje(data, bvals, Dt=Dt, Dcsf=Dcsf)
-    gtiv = dbe.make_grad_based_TIV(s0, madje, dnii.affine, ncomponents=ncomponents)
+    gtiv = dbe.make_grad_based_TIV(s0, madje, dnii.affine, ncomponents=ncomponents,
+                                   is_phantom=True)
 
     # gtiv has had hole filling, but for a phantom try harder to fill in dark patches
     # around plastic structures.
