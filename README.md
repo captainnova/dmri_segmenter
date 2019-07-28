@@ -130,9 +130,8 @@ cd GE/0; fsleyes dtb_eddy_fvecs.nii dmri_segment.nii & # Save to dmri_segment_ed
 ```
 
 ### Running the Trainer
-
-# List the training directories into a file.
 ```sh
+# List the training directories into a file.
 echo [GPS]*/* | sed 's/ /\n/g' > all.srclist
 
 time /mnt/data/m101013/src/dmri_segmenter/train_from_multiple training.srclist all dtb_eddy_fvecs.nii &
@@ -141,4 +140,10 @@ user	1m50.555s
 sys	0m6.735s
 ```
 
+## Acknowledgements
+The images used to train the default version of the classifier
+(RFC_ADNI6.pickle) came from [the Alzheimer's Disease Neuroimaging Initiative
+(ADNI)](http://adni.loni.usc.edu/).
+
 ## References
+Reid, R. I. et al. Diffusion Specific Segmentation: Skull Stripping with Diffusion MRI Data Alone. in Computational Diffusion MRI (eds. Kaden, E., Grussu, F., Ning, L., Tax, C. M. W. & Veraart, J.) 6780 (Springer, Cham, 2018). doi:10.1007/978-3-319-73839-0_5
