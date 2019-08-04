@@ -26,10 +26,18 @@ brain volume.
 Licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 
 ## Dependencies
-python 2.6+, not yet tested with python 3.
-dipy
-nibabel
-numpy
+All but the first two can be installed with pip.
+- POSIX? (not yet tested with Windows)
+- python 2.6+, not yet tested with python 3.
+- dipy
+  - Dependencies:
+    - nibabel
+    - numpy
+    - (If installing via pip): 
+      - sudo apt install python-dev (Debian and its derivatives)
+      - sudo yum install python-devel (Red Hat and its derivatives)
+- scikit-image
+- scikit-learn
 
 ## Versions
 1.1.0 released 2019-07-28.
