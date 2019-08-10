@@ -1,3 +1,10 @@
+# dmri\_segmenter
+[![pypi badge](https://img.shields.io/pypi/v/dmri_segmenter.svg)](https://pypi.python.org/pypi/dmri_segmenter)
+[![travis-ci badge](https://img.shields.io/travis/captainnova/dmri_segmenter.svg)](https://travis-ci.org/captainnova/dmri_segmenter)
+[![Documentation Status](https://readthedocs.org/projects/dmri-segmenter/badge/?version=latest)](https://dmri-segmenter.readthedocs.io/en/latest/?badge=latest)
+
+- Eventual readthedocs.io documentation: (https://dmri-segmenter.readthedocs.io)
+
 ## About
 This package includes both a program, skullstrip_dmri, already trained to strip
 (adult human) skulls from in vivo diffusion MR images, and software for
@@ -152,6 +159,9 @@ sys	0m6.735s
 The images used to train the default version of the classifier
 (RFC_ADNI6.pickle) came from [the Alzheimer's Disease Neuroimaging Initiative
 (ADNI)](http://adni.loni.usc.edu/).
+
+This package was created with [Cookiecutter](https://github.com/audreyr/cookiecutter) and the [audreyr/cookiecutter-pypackage](https://github.com/audreyr/cookiecutter-pypackage) project template.
+
 
 ## References
 Reid, R. I. et al. Diffusion Specific Segmentation: Skull Stripping with Diffusion MRI Data Alone. in Computational Diffusion MRI (eds. Kaden, E., Grussu, F., Ning, L., Tax, C. M. W. & Veraart, J.) 6780 (Springer, Cham, 2018). doi:10.1007/978-3-319-73839-0_5
