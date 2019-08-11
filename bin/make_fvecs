@@ -20,9 +20,14 @@ Options:
 """
 
 from docopt import docopt
+import os
 import sys
 
-import train
+pkgdir = os.path.dirname(os.path.dirname(__file__))
+if os.path.isdir(os.path.join(pkgdir, 'dmri_segmenter')):
+    sys.path.insert(0, pkgdir)
+    
+import dmri_segmenter.train as train
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
 args = docopt(__doc__, version='0.9.0')

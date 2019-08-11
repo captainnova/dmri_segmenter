@@ -31,6 +31,7 @@ trainees = {'RFC 20000 Siemens 0_0': 'rfc_20000_Siemens_0_0.pickle',
             'RFC Siemens': 'rfc_Siemens.pickle',
             'RFC all': 'rfc_all.pickle'}
 
+
 def get_bvals(dwfn, bvalpat='*bval*'):
     """
     Get the diffusion strengths for each volume in dwfn.
@@ -54,6 +55,7 @@ def get_bvals(dwfn, bvalpat='*bval*'):
     bvals, _ = dipy.io.read_bvals_bvecs(bvalfn, None)
     return bvals
 
+
 def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
                 Dcsf=0.00305, blankval=0, clamp=30, normslop=0.2,
                 logclamp=-10, outlabel='fvecs'):
@@ -70,6 +72,7 @@ def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
                                                                posterity))
     nib.save(outnii, outfn)
     return outfn
+
 
 def edited_to_segmentation(tivfn, brfn, s0fn):
     outfn = tivfn.replace('.nii', '_segmentation.nii')
@@ -90,6 +93,7 @@ def edited_to_segmentation(tivfn, brfn, s0fn):
     seg[other > 0] = 3
     nib.save(nib.Nifti1Image(seg, brnii.affine), outfn)
     return outfn
+
 
 def gather_svm_samples(svecs, tmask, maxperclass=100000,
                        tmasktype=np.int8, verbose=False):
@@ -138,6 +142,7 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
         targets += [t] * ntsamps                  # Annotate them 
     return samps, np.array(targets)
 
+
 def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
                       useT1=False):
     fnii = nib.load(fvecsfn)
@@ -145,18 +150,21 @@ def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
     fvecs = fnii.get_data()
 
     if useT1:
-        t1wtiv = fvecsfn.replace('dtb_eddy_fvecs.nii', 'bdp/dtb_eddy_T1wTIV.nii')
+        t1wtiv = fvecsfn.replace('dtb_eddy_fvecs.nii',
+                                 'bdp/dtb_eddy_T1wTIV.nii')
     else:
         t1wtiv = None
         
     # os.path.abspath is idempotent.
     clf = brine.debrine(os.path.abspath(fvcfn))
 
-    seg, probs, posterity = dbe.probabilistic_classify(fvecs, aff, clf, t1wtiv=t1wtiv)
+    seg, probs, posterity = dbe.probabilistic_classify(fvecs, aff, clf,
+                                                       t1wtiv=t1wtiv)
 
     if outfn is None:
         if custom_label:
-            outfn = fvecsfn.replace('_fvecs', '_' + os.path.basename(fvcfn).replace('.pickle', ''))
+            outfn = fvecsfn.replace('_fvecs',
+                                    '_' + os.path.basename(fvcfn).replace('.pickle', ''))
         else:
             outfn = fvecsfn.replace('_fvecs.nii', '_rfcseg.nii')
     outdir, outbase = os.path.split(outfn)
@@ -167,6 +175,7 @@ def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
                                                                posterity))
     nib.save(outnii, outfn)
     return outfn
+
 
 def gather_error_samples(svecs, trial, gold, maxperclass=5000,
                          tmasktype=np.int8):
@@ -245,6 +254,7 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
         notes[t]['total sampled'] = ntsamps
         
     return samps, np.array(targets), notes
+
 
 def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
           smoothrad=10.0, srclist_is_srcdirs=False, fvfn='dtb_eddy_fvecs.nii',
@@ -348,7 +358,8 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         svecs = snii.get_data()
         svecslist.append(svecs)
         tmasklist.append(nib.load(os.path.join(vols, segfn)).get_data())
-        samps, targets = gather_svm_samples(svecslist[-1], tmasklist[-1], maxperclass=maxperclass)
+        samps, targets = gather_svm_samples(svecslist[-1], tmasklist[-1],
+                                            maxperclass=maxperclass)
         nclasses = max(targets) + 1
         res['src_properties'].append([])
         for c in xrange(nclasses):
@@ -359,8 +370,10 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         samplist.append(samps)
         targlist.append(targets)
 
-    res['s0 brain level'] = np.average([t[1]['s0 level'] for t in res['src_properties']],   # 1 for brain
-                                       weights=[t[1]['n'] for t in res['src_properties']])  # 1 for brain
+    res['s0 brain level'] = np.average([t[1]['s0 level']     # 1 for brain
+                                        for t in res['src_properties']],
+                                       weights=[t[1]['n']    # 1 for brain
+                                                for t in res['src_properties']])
     catsamps = None
     for i in xrange(len(srclist)):
         targets = targlist[i]
@@ -508,4 +521,3 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
     return res, pfn, logfn
-
