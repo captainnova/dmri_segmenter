@@ -18,7 +18,7 @@ setup_requirements = ['pytest-runner', ]
 test_requirements = ['pytest', ]
 
 setup(
-    author="Robert I. Reid",
+    author="Rob Reid",
     author_email='barlennan@gmail.com',
     classifiers=[
         'Development Status :: 4 - Beta',

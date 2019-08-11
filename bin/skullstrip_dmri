@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # Careful, docopt is picky about spacing, esp. that there be only 1 space
 # btw. the short and long forms of an option.
@@ -46,7 +46,7 @@ Options:
   -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
   --verbose=VE            Be chatty.
                           [default: 1] (True)
-  -w --whiskers           If given, do NOT make an extra effort to trim whiskers.
+  -w --whiskers           If given, do NOT try harder to trim whiskers.
 """
 
 from dipy.io import read_bvals_bvecs
@@ -55,8 +55,12 @@ import nibabel as nib
 import os
 import sys
 
-from dmri_brain_extractor import get_dmri_brain_and_tiv
-from dmri_phantom_extractor import make_phantom_mask
+pkgdir = os.path.dirname(os.path.dirname(__file__))
+if os.path.isdir(os.path.join(pkgdir, 'dmri_segmenter')):
+    sys.path.insert(0, pkgdir)
+    
+from dmri_segmenter.dmri_brain_extractor import get_dmri_brain_and_tiv
+from dmri_segmenter.dmri_phantom_extractor import make_phantom_mask
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
 args = docopt(__doc__, version='1.1.0')
