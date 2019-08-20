@@ -9,10 +9,13 @@ try:
 except:
     import pickle               # subclassable
 
+    
 def brine(obj, filename, protocol=-1):
     "cPickle.dump(obj) into filename."
-    with open(filename, 'wb') as f:   # b needed (outside UNIX) for protocol=-1 (highest avail)
+    # b needed (outside UNIX) for protocol=-1 (highest avail)
+    with open(filename, 'wb') as f:
         pickle.dump(obj, f, protocol)
+
 
 def debrine(filename):
     "cPickle.load(open(filename))"
