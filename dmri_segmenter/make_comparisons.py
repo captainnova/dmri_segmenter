@@ -1,3 +1,5 @@
+# Functions used to compare dmri_brain_extractor to bet, dwi2mask, etc. for the paper.
+# Except for jaccard_index() they are unlikely to be used again.
 import numpy as np
 import nibabel as nib
 import os
@@ -5,22 +7,25 @@ import re
 import shutil
 
 import brine
-import train
+
 
 def _cond_to_mask(seg, cond):
     mask = np.zeros_like(seg)
     mask[seg == cond] = 1
     return mask
 
+
 def dice(a, b):
     """a and b must be binary!"""
     return np.sum(np.asarray(a) * np.asarray(b)) * 2.0 / (np.sum(a) + np.sum(b))
+
 
 def jaccard_index(a, b):
     """a and b must be binary!"""
     u = np.asarray(a).copy()
     u[b > 0] = 1
     return float(np.sum(np.asarray(a) * np.asarray(b))) / u.sum()
+
 
 def relative_error(trial, gold):
     t = np.asarray(trial, dtype=np.int8)    # Make sure it's signed!
@@ -35,18 +40,21 @@ def relative_error(trial, gold):
     err[t != g] = True
     err = err.sum()
 
-    return float(err) / len(g[g > 0]) 
+    return float(err) / len(g[g > 0])
+
 
 def arr_from_file_or_arr(foa):
     if isinstance(foa, str):
         return nib.load(foa).get_data()
     else:
         return foa
-    
+
+
 def get_re_dc_and_ji(afn, bfn):
     a = arr_from_file_or_arr(afn)
     b = arr_from_file_or_arr(bfn)
     return relative_error(a, b), dice(a, b), jaccard_index(a, b)
+
 
 def make_comparisons(trial='bet', gold_standard='dtb_eddy_T1wTIV_edited', branch='test'):
     outfn = "%s_vs_%s_in_%s.csv" % (trial.replace('/', '_'), gold_standard, branch)
@@ -63,8 +71,9 @@ def make_comparisons(trial='bet', gold_standard='dtb_eddy_T1wTIV_edited', branch
 
 
 def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dwi2mask_bc',
-                                           'bdp/dtb_eddy_T1wTIV'], gold_standard='dtb_eddy_T1wTIV_edited',
-                                           gold_standard_root='gold_standards'):
+                                           'bdp/dtb_eddy_T1wTIV'],
+                                   gold_standard='dtb_eddy_T1wTIV_edited',
+                                   gold_standard_root='gold_standards'):
     """
     Run in crossvalidation/.
     """
@@ -74,7 +83,8 @@ def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dw
         for trial in trials:
             outfns[trial] = "all_%s_vs_%s.csv" % (os.path.split(trial)[-1], gold_standard)
             outfhs[trial] = open(outfns[trial], 'w')
-            outfhs[trial].write("Manufacturer,Sequence,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+            outfhs[trial].write(
+                "Manufacturer,Sequence,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
         for manuf in ['ge', 'philips', 'siemens']:
             for seq in '01':
                 for subj in '0123':
@@ -88,7 +98,8 @@ def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dw
     finally:
         for outf in outfhs.itervalues():
             outf.close()
-    return outfns    
+    return outfns
+
 
 def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
                                           'dwi2mask', 'dwi2mask_bc',
@@ -96,7 +107,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
     """
     Select entries from crossvalidation/all_*_vs_dtb_eddy_T1wTIV_edited.csv
     matching the scans used to crossvalidate <label>.
-    
+
     Run in crossvalidation/<label>/.
     """
     # Find the crossvalidation scans by reading ./qmake_segmentations.sh
@@ -111,7 +122,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
     # Predict an index from (manuf, seq, subj) to row number in one of
     # crossvalidation/all_*_vs_dtb_eddy_T1wTIV_edited.csv.
                 rownum = 1     # 0th row is the header.
-    rownums = {} 
+    rownums = {}
     for manuf in ['ge', 'philips', 'siemens']:
         for seq in '01':
             for subj in '0123':
@@ -131,12 +142,13 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
         os.mkdir(trial)
         outfns.append(trial + "/tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv")
         with open(outfns[-1], 'w') as outf:
-            outf.write("Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+            outf.write(
+                "Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
             batch = []
             for ir in indexed_rows:
                 manuf, seq, trial_num, subj = ir[1:]
                 if [manuf, seq, subj] != allrows[ir[0]][:3]:
-                    raise ValueError("%s: mismatch for %s,%s" % (trial, ir, allrows[ir[0]][:3]))                
+                    raise ValueError("%s: mismatch for %s,%s" % (trial, ir, allrows[ir[0]][:3]))    
                 outf.write("%s,%s,%s,%s,%s\n" % (manuf, seq, trial_num, subj, ','.join(allrows[ir[0]][3:])))
                 batch.append(map(float, allrows[ir[0]][3:]))
                 if len(batch) == 12:
@@ -146,6 +158,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
                     batch = []
     return outfns
 
+
 def compare_segmentations(trial='dtb_eddy_rfcseg.nii', gold='dtb_eddy_T1wTIV_edited_segmentation.nii',
                           branch='test'):
     results = {}
@@ -154,9 +167,12 @@ def compare_segmentations(trial='dtb_eddy_rfcseg.nii', gold='dtb_eddy_T1wTIV_edi
     brains = [_cond_to_mask(tseg, 1), _cond_to_mask(gseg, 1)]
     csfs   = [_cond_to_mask(tseg, 2), _cond_to_mask(gseg, 2)]
     others = [_cond_to_mask(tseg, 3), _cond_to_mask(gseg, 3)]
-    results['brain'] = (jaccard_index(brains[0], brains[1]), dice(brains[0], brains[1]), relative_error(brains[0], brains[1]))
-    results['csf'] = (jaccard_index(csfs[0], csfs[1]), dice(csfs[0], csfs[1]), relative_error(csfs[0], csfs[1]))
-    results['other'] = (jaccard_index(others[0], others[1]), dice(others[0], others[1]), relative_error(others[0], others[1]))
+    results['brain'] = (jaccard_index(brains[0], brains[1]), dice(brains[0], brains[1]),
+                        relative_error(brains[0], brains[1]))
+    results['csf'] = (jaccard_index(csfs[0], csfs[1]), dice(csfs[0], csfs[1]), relative_error(csfs[0],
+                                                                                              csfs[1]))
+    results['other'] = (jaccard_index(others[0], others[1]), dice(others[0], others[1]),
+                        relative_error(others[0], others[1]))
 
     for i in [0, 1]:
         brains[i] += others[i]
@@ -165,11 +181,14 @@ def compare_segmentations(trial='dtb_eddy_rfcseg.nii', gold='dtb_eddy_T1wTIV_edi
 
     for i in [0, 1]:
         brains[i] += csfs[i]
-    results['tiv'] = (jaccard_index(brains[0], brains[1]), dice(brains[0], brains[1]), relative_error(brains[0], brains[1]))
-        
+    results['tiv'] = (jaccard_index(brains[0], brains[1]), dice(brains[0], brains[1]),
+                      relative_error(brains[0], brains[1]))
+
     return results
 
-def make_segmentation_comparisons(trial='dtb_eddy_rfcseg', gold_standard='dtb_eddy_T1wTIV_edited_segmentation',
+
+def make_segmentation_comparisons(trial='dtb_eddy_rfcseg',
+                                  gold_standard='dtb_eddy_T1wTIV_edited_segmentation',
                                   branch='test', label=''):
     if not label:
         label = trial
@@ -177,7 +196,7 @@ def make_segmentation_comparisons(trial='dtb_eddy_rfcseg', gold_standard='dtb_ed
     outfhs = {}
     try:
         for segtype in ['brain', 'csf', 'other', 'brain + other', 'tiv']:
-            outfns[segtype] = "%s_vs_%s_%s_in_%s.csv" % (label.replace('/', '_'), gold_standard, 
+            outfns[segtype] = "%s_vs_%s_%s_in_%s.csv" % (label.replace('/', '_'), gold_standard,
                                                          segtype.replace(' + ', '_p_'), branch)
             outfhs[segtype] = open(outfns[segtype], 'w')
             outfhs[segtype].write("Manufacturer,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
@@ -188,11 +207,13 @@ def make_segmentation_comparisons(trial='dtb_eddy_rfcseg', gold_standard='dtb_ed
                 bfn = os.path.join(niidir, gold_standard + '.nii')
                 results = compare_segmentations(afn, bfn)
                 for segtype, result in results.iteritems():
-                    outfhs[segtype].write("%s,%s,%f,%f,%f\n" % (manuf, subj, result[0], result[1], result[2]))
+                    outfhs[segtype].write("%s,%s,%f,%f,%f\n" % (manuf, subj, result[0], result[1],
+                                                                result[2]))
     finally:
         for outf in outfhs.itervalues():
             outf.close()
     return outfns
+
 
 def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wTIV_edited_segmentation.nii',
                         gold_standard_root='gold_standards', trial_pat=r'[0-9]+'):
@@ -208,7 +229,8 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
                                                    segtype.replace(' + ', '_p_'),
                                                    gold_standard_im[:-4])
             outfhs[segtype] = open(outfns[segtype], 'w')
-            outfhs[segtype].write("Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+            outfhs[segtype].write(
+                "Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
         items = os.listdir(label)
         for trial in items:
             if trial_pat.match(trial):
@@ -241,6 +263,7 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
             outf.close()
     return outfns
 
+
 def symlink_remote(src, dst):
     """
     os.symlink (and ln -s) produce broken symlinks if dst is not in the current directory,
@@ -262,6 +285,7 @@ def symlink_remote(src, dst):
     finally:
         os.chdir(startdir)
 
+
 def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', trial_pat=r'[0-9]+'):
     """
     Find the best and worst segmentation for label, and rm the rest.
@@ -272,8 +296,8 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
                 'worst': None}
     bestscore = 2.0
     worstscore = -1
-    best_mean_score = 2.0
-    best_trial = None
+    # best_mean_score = 2.0
+    # best_trial = None
     csvfn = os.path.join(label, scorefn)
     with open(csvfn) as f:
         for line in f:
@@ -290,7 +314,7 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
                 score = float(parts[-1])
                 if score < bestscore:
                     bestscore = score
-                    best_trial = parts[2]
+                    # best_trial = parts[2]
             else:
                 pass  # header line
 
@@ -300,7 +324,8 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
         os.mkdir(outdir)
         manuf, seq, trial, subj = parts
         infn = os.path.join(label, trial, manuf, seq, subj, 'seg.nii')
-        outfn = os.path.join(outdir, '_'.join(('seg', 'trial', trial, manuf, 'seq', seq, 'subj', subj)) + '.nii')
+        outfn = os.path.join(outdir, '_'.join(('seg', 'trial', trial, manuf,
+                                               'seq', seq, 'subj', subj)) + '.nii')
         os.rename(infn, outfn)
         gold = os.path.join('gold_standards', manuf, seq, subj)
         symlink_remote(gold, os.path.join(outdir, 'gold'))
@@ -311,7 +336,7 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
               os.path.join(label, 'RFC_classifier.pickle'))
     with open(os.path.join(label, 'RFC_classifier.mean_relerr_over_manuf_and_seq'), 'w') as f:
         f.write("%f\n" % bestscore)
-    
+
     # rm the rest.
     items = os.listdir(label)
     trial_pat = re.compile(trial_pat)
@@ -319,13 +344,15 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
         if trial_pat.match(trial):
             shutil.rmtree(os.path.join(label, trial))
     return bestscore, worstscore, extremes
-    
+
+
 def mask_from_possible_filename(m, binarize=True, thresh=0):
     if isinstance(m, str):
         m = nib.load(m).get_data()
     if binarize:
         m = m > thresh
     return m
+
 
 def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
     mask1 = mask_from_possible_filename(mask1fn)
@@ -346,7 +373,7 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
            glabel + " only": gold.copy()}
     res[m1label + " only"][mask2 > 0] = False
     res[m1label + " only"][gold > 0] = False
-    
+
     res[m2label + " only"][mask1 > 0] = False
     res[m2label + " only"][gold > 0] = False
 
@@ -356,7 +383,7 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
 
     res[glabel + " only"][mask1 > 0] = False
     res[glabel + " only"][mask2 > 0] = False
-    
+
     for k, v in res.iteritems():
         save_mask(v, aff, k.replace(' ', '_') + '.nii')
 
@@ -373,7 +400,6 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
 # * the results don't overlap, and
 # * the results have the same size (so we don't get size effects).
 #
-#                    
 #            label   use           tt        subj   tt        subj
 cv_samples = {'a': {'training': (('training', 0), ('training', 1)),
                     'test':     (('test',     0), ('test',     1))},
@@ -387,6 +413,7 @@ cv_samples = {'a': {'training': (('training', 0), ('training', 1)),
                     'test':     (('training', 0), ('test',     0))},
               'f': {'training': (('test',     0), ('test',     1)),
                     'test':     (('training', 0), ('training', 1))}}
+
 
 def setup_gold_standards_for_cross_validation(base='gold_standards'):
     """Run in crossvalidation"""
@@ -404,7 +431,8 @@ def setup_gold_standards_for_cross_validation(base='gold_standards'):
                     os.symlink(os.path.join(root, tt, m, seq + '_' + subj),
                                os.path.join(basemseq, "%s" % i))
                     i += 1
-                    
+
+
 def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standards',
                  lsvecs_fn='dtb_eddy_lsvecs.nii', manufs=['ge', 'philips', 'siemens'],
                  seqs='01', maxperclass=100000, useT1=False):
@@ -447,7 +475,7 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
                 cmdline = "../train_from_multiple "
                 if useT1:
                     cmdline += "-t "
-                cmdline += "%s %s %s %d\n" % (tlfn, classifier, lsvecs_fn, maxperclass) 
+                cmdline += "%s %s %s %d\n" % (tlfn, classifier, lsvecs_fn, maxperclass)
                 qtf.write(cmdline)
     with open(qsegfn, 'w') as f:
         for trial, test_list in enumerate(test_lists):
@@ -456,11 +484,12 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
     brine.brine(test_lists, os.path.join(label, 'test_lists.pickle'))
     print "First\nqsw_a %s\nthen\nqsw_a %s" % (qtrainfn, qsegfn)
 
+
 def qmake_segmentation_to_test_lists():
     """
     Needed because the 1st run of setup_trials didn't save test_lists except
     implicitly in qmake_segmentation.sh.
-    
+
     Run in the label directory.
     """
     tld = {}

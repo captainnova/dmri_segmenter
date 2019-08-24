@@ -3,12 +3,12 @@ import nibabel as nib
 import numpy as np
 import os
 import scipy.ndimage as ndi
-from scipy.ndimage.filters import median_filter, convolve
+from scipy.ndimage.filters import median_filter
 import scipy.special
 #import sklearn.externals.joblib as joblib
 try:
     from skimage.filter import threshold_otsu as otsu
-except:
+except Exception:
     from dipy.segment.threshold import otsu
 import socket
 import subprocess
@@ -18,10 +18,10 @@ import brine
 from FLAIRity import FLAIRity
 import utils
 
-# A combination of semantic versioning and the date. I admit that I do not 
+# A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.3.0 20190612"
+__version__ = "1.3.1 20190824"
 
 
 def get_subprocess_output(cmd):
@@ -46,7 +46,7 @@ def get_subprocess_output(cmd):
     out, unused_err = p.communicate()
     retcode = p.poll()
     if retcode:
-        raise CalledProcessError(retcode, cmd, output=out)
+        raise subprocess.CalledProcessError(retcode, cmd, output=out)
     return out
 
 
@@ -377,7 +377,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     brightness_scale = np.median(s0[madje > thresh])
     regularizer = regscale * brightness_scale
     madje /= (s0**2 + regularizer**2)**0.5
-    
+
     madje[s0 == 0] = blankval
     madje[np.isnan(madje)] = blankval
     if clamp is not None:
@@ -429,7 +429,7 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
 
     # Use mode='constant' (with implied cval=0) so that the TIV is capped.
     grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
-    
+
     thresh = relthresh * otsu(grad)
     gradmask = np.zeros(s0.shape, dtype=np.uint8)
     gradmask[grad > thresh] = 1
@@ -1023,7 +1023,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         fvecs, fveclog = make_feature_vectors(data, aff, bvals, relbthresh, smoothrad,
                                               s0, Dt, Dcsf, blankval, clamp, normslop,
                                               logclamp=logclamp)
-    
+
     lsvmmask, probs, clog = probabilistic_classify(fvecs, aff, clf,
                                                    smoothrad=smoothrad,
                                                    t1wtiv=t1wtiv,
@@ -1041,4 +1041,4 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     posterity += _note_progress(csf, "csf at the end")
     posterity += _note_progress(other, "other at the end")
 
-    return brain, csf, other, posterity    
+    return brain, csf, other, posterity

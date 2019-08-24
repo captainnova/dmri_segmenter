@@ -4,7 +4,7 @@ import numpy as np
 import scipy.ndimage as ndi
 try:
     from skimage.filter import threshold_otsu as otsu
-except:
+except Exception:
     from dipy.segment.threshold import otsu
 from skimage.morphology import reconstruction
 import sys
@@ -36,6 +36,7 @@ def _check_img_and_selem(img, structure):
     binary = (img > 0).view(np.uint8)
 
     return binary, conv, structure
+
 
 def binary_closing(arr, structure=None, out=None, mode='constant', cval=0,
                    origin=0):
@@ -92,6 +93,7 @@ def binary_closing(arr, structure=None, out=None, mode='constant', cval=0,
     crop = tuple([slice(p, -p) for p in pw])
     return tmp[crop].copy()
 
+
 def binary_dilation(arr, structure=None, out=None, mode='nearest', cval=0.0, origin=0):
     """
     Multidimensional binary dilation with a given structuring element.
@@ -131,6 +133,7 @@ def binary_dilation(arr, structure=None, out=None, mode='nearest', cval=0.0, ori
     if out is None:
         out = np.empty_like(binary, dtype=np.uint8)  # np.bool might be more logical.
     return np.not_equal(conv, 0, out=out)
+
 
 def binary_erosion(arr, structure=None, out=None, mode='nearest', cval=0.0, origin=0):
     """
@@ -380,7 +383,7 @@ def make_structural_sphere(aff, rad=None):
         rad = maxscale
     if rad < maxscale:
         print "Warning!  rad, %f, is < the largest voxel scale, %f." % (rad, maxscale)
-        
+
     cent = np.asarray(np.floor(rad / scales), int)
     shape = 2 * cent + 1
     output = np.zeros(shape, dtype=bool)

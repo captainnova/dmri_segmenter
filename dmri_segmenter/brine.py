@@ -4,10 +4,11 @@ pickle's interface is annoying in that it doesn't include
 convenient for using it with readline in ipython (This way, you see the
 file and the object on the same line).
 """
-try:
-    import cPickle as pickle    # faster
-except:
-    import pickle               # subclassable
+# try:
+#     import cPickle as pickle    # faster
+# except:
+#     import pickle               # subclassable
+import cPickle as pickle
 
     
 def brine(obj, filename, protocol=-1):

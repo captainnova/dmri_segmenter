@@ -54,11 +54,13 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
     rind = utils.binary_dilation(gtiv, ball)
     rind[gtiv > 0] = 0
     thresh = dbe.otsu(s0[rind > 0])
+
+    rindmin = s0[rind > 0].min()
+    if rindmin >= thresh:        # Mainly happens in testing.
+        thresh = 0.5 * (rindmin + np.median(s0[gtiv > 0]))
+
     rind[s0 < thresh] = 0
     ball = utils.make_structural_sphere(dnii.affine, closerad)
     mask = utils.binary_closing(gtiv + rind, ball)
-    
+
     return mask.astype(dtype)
-    
-    
-    

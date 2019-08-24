@@ -5,6 +5,9 @@ name = "pypi"
 
 [dev-packages]
 pytest = "*"
+coverage = "*"
+pytest-cov = "*"
+"flake8" = "*"
 
 [packages]
 dipy = "*"
