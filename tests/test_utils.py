@@ -82,10 +82,8 @@ def test_get_1_file_and_hurl():
         utils.get_1_file_or_hurl(os.path.join(dsdir, 'd*'))
 
 
-def test_instaprint(capsys):
+def test_instaprint(capfd):
     msg = "Hello!\n"
     utils.instaprint(msg)
-    # captured = capsys.readouterr()
-    # This doesn't work like I thought it would according to
-    # https://docs.pytest.org/en/latest/capture.html
-    # assert captured.out == msg
+    out, err = capfd.readouterr()
+    out == msg

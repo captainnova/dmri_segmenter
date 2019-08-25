@@ -57,10 +57,10 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
     """
     try:
         filename = __file__
-    except:
+    except Exception:
         filename = "dmri_brain_extractor.py"
     vinfo = filename + " version: " + __version__ + "\n"
-    
+
     probable_repo_dir = os.path.dirname(filename)
     startdir = os.path.abspath(os.curdir)
     try:
@@ -71,7 +71,7 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
             vinfo += "The most recent dmri_segmenter commit was:\n"
             vinfo += repo_info
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
-    except:
+    except Exception:
         # I don't think it's really worth worrying anyone if they installed
         # this outside of a repository.
         pass
@@ -239,7 +239,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         whiskrad = whiskradinvox * maxscale
         ball = utils.make_structural_sphere(aff, whiskrad)
 
-        omask = utils.binary_closing(mask, ball) # Fill in sulci
+        omask = utils.binary_closing(mask, ball)  # Fill in sulci
         omask = utils.binary_opening(omask, ball)
         omask = utils.remove_disconnected_components(omask, aff, 0)
         omask = utils.binary_dilation(omask, ball)
@@ -308,7 +308,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             mask = utils.remove_disconnected_components(mask, aff, 0)
 
             mask = utils.binary_dilation(mask) # Recover partial CSF voxels.
-            mask[tiv == 0] = 0                 # but clamp to the TIV.        
+            mask[tiv == 0] = 0                 # but clamp to the TIV. 
         save_mask(mask, aff, brfn, exttext)
     if tivfn:
         save_mask(tiv, aff, tivfn, exttext)
@@ -467,7 +467,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     bvals: (nv,) array
     relbthresh: float
        The cutpoint between b0s and DWIs, as a fraction of max(bvals).
-       Only used if s0 is None.        
+       Only used if s0 is None.
     smoothrad: float
         The smoothing radius in mm.
         Since it is a parameter of training data, do not change it!
@@ -486,7 +486,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         the data range supported by fslview, it is best to clip them at +- some
         value well away from 1.  Set to None if you really do not want to clamp.
     normslop: float
-        s0 needs to be normalized before it can be used with an SVM, so it is 
+        s0 needs to be normalized before it can be used with an SVM, so it is
         divided by median(s0[np.abs(madje - 1) < normslop]), where madje comes
         from make_mean_adje().
         It should be large enough to include most brain voxels, but small enough
@@ -524,8 +524,8 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
                                                      blankval=blankval, clamp=clamp)
 
     fvecs[..., 0] = s0 / brightness_scale
-    
-    ball = utils.make_structural_sphere(aff, smoothrad)    
+
+    ball = utils.make_structural_sphere(aff, smoothrad)
     median_filter(fvecs[..., 2], footprint=ball, output=fvecs[..., 3], mode='nearest')
     median_filter(fvecs[..., 0], footprint=ball, output=fvecs[..., 1], mode='nearest')
 
@@ -545,10 +545,10 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     #     #fvecs[..., 5] = np.sqrt(adev + ml2amp)
     #     median_filter(np.sqrt(l2amp), footprint=ball, output=fvecs[..., 5],
     #     mode='nearest')
-    
+
     tlogclamp = 10**logclamp
     fvecs[..., :4] = np.log10(np.clip(fvecs[..., :4], tlogclamp, 1.0 / tlogclamp, fvecs[..., :4]))
-    
+
     posterity  = "Feature vectors made with:\n"
     posterity += "\trelbthresh = %f\n" % relbthresh
     posterity += "\tsmoothrad = %f mm\n" % smoothrad
@@ -561,6 +561,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     posterity += "\tuse_grad = %s\n" % use_grad
 
     return fvecs, posterity
+
 
 def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
     """
@@ -988,7 +989,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         A description of how the classification was done, i.e. the classifier parameters.
     """
     posterity = ''
-    
+
     # Hurl early if we can't get a classifier.
     clffn = None
     if isinstance(clf, str):
@@ -996,10 +997,10 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         if not os.path.isfile(clffn):
             try:
                 clffn = os.path.join(os.path.dirname(__file__), clffn)
-            except:
+            except Exception:
                 raise ValueError("Could not find %s" % clffn)
         clf = brine.debrine(clffn)
-        posterity += "Classifier loaded from %s.\n" % clffn        
+        posterity += "Classifier loaded from %s.\n" % clffn
     if '3rd stage' in clf:
         nstages = 3
     else:
