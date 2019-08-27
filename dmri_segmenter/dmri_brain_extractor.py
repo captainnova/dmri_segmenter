@@ -143,7 +143,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     whiskradinvox: float
         Scale relative to the largest voxel dimension of data.
     Dt: float
-        The nominal diffusivity of tissue in reciprocal units of bvals. 
+        The nominal diffusivity of tissue in reciprocal units of bvals.
         Depends on temperature.
     DCSF: float
         The nominal diffusivity of CSF in reciprocal units of bvals.
@@ -172,7 +172,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     #         fslreorient2std or removeFlipsRots.
     #         """
     #         return None
-    
+
     if data is None:
         data = ecnii.get_data()
     if len(data.shape) != 4:
@@ -181,7 +181,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     if len(bvals) != data.shape[-1]:
         raise ValueError("the length of bvals, %d, does not match the number of data volumes, %d" %
                          (len(bvals), data.shape[-1]))
-    b0 = utils.calc_average_s0(data, bvals, relbthresh, estimator=np.median)
+    # b0 = utils.calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
 
@@ -307,8 +307,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             mask = utils.binary_opening(mask, ball)
             mask = utils.remove_disconnected_components(mask, aff, 0)
 
-            mask = utils.binary_dilation(mask) # Recover partial CSF voxels.
-            mask[tiv == 0] = 0                 # but clamp to the TIV. 
+            mask = utils.binary_dilation(mask)  # Recover partial CSF voxels.
+            mask[tiv == 0] = 0                  # but clamp to the TIV.
         save_mask(mask, aff, brfn, exttext)
     if tivfn:
         save_mask(tiv, aff, tivfn, exttext)
@@ -633,8 +633,9 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
         seg[obrain == 1] = 1
         probs[obrain == 1, 1] += probs[obrain == 1, 3]
         probs[obrain == 1, 3] = 0
-    
+
     return seg, probs
+
 
 def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
     """
@@ -680,7 +681,13 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         This legacy parameter is used in training the classifier as well, so
         it should match for training and classification.  Recent classifiers
         record their smoothrad and will override anything you set here.
-    s0tol: make_feature_vectors() The absolute difference to 
+    t1wtiv: (nx, ny, nz) array
+        Optional intracranial volume mask from an undistorted (e.g. T1w) image,
+        but in the same space as the dMRI. Because of EPI distortion it is only
+        used as a suggestion.
+    t1fwhm: sequence of 3 floats
+        How much to blur t1wtiv by in x, y, and z mm. Blur it more in the phase
+        encoding direction.
 
     Output
     ------
@@ -692,7 +699,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         Info on how probs was made.
     """
     lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
-    
+
     augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
     augvecs[..., :fvecs.shape[-1]] = fvecs
     sigma = fwhm_to_voxel_sigma(smoothrad, aff)
@@ -728,7 +735,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         probs[t1tiv < 0.01, 0] = 1
         probs[t1tiv < 0.01, 1:] = 0
         probs[t1tiv > 0.99, 0] = 0
-        
+
         sprobs = probs.sum(axis=3)
         probs[probs[..., 0] < 0.5 * sprobs, 0] = 0  # Coalesce the anyone-but-air vote.
         sprobs = probs.sum(axis=3)
@@ -749,14 +756,14 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         mask[lsvmmask > 0] = 0  # Leave old ones alone.
         lsvmmask = tempmask.copy()
         lsvmmask[mask > 0] = 1
-        
+
     brain = np.zeros(fvecs.shape[:3], dtype=np.uint8)
     csf = np.zeros(fvecs.shape[:3], dtype=np.uint8)
     brain[lsvmmask == 1] = 1
     csf[lsvmmask == 2] = 1
     posterity += _note_progress(brain, "brain before removing disconnected components")
     posterity += _note_progress(csf, "csf")
-    
+
     # The brain has to be connected, even if somewhat tenuously.  We can firm
     # that up with dilation by 1 voxel.
     scales = utils.voxel_sizes(aff)
@@ -766,7 +773,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     tiv = utils.remove_disconnected_components(tiv, inplace=False)
     brain[tiv == 0] = 0
     posterity += _note_progress(brain, "brain after removing disconnected components")
-    
+
     # "Other" is necessary to fill in partial volume voxels and dark regions
     # like the globus pallidus.  However, it is the least reliable class coming
     # out of the RFC.  Other in direct contact with brain is much more reliable
@@ -774,7 +781,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # filled (after a closing operation) can be reclassified as brain.
     other = np.zeros_like(tiv)
     other[lsvmmask == 3] = 1
-    tiv = brain + csf# + other
+    tiv = brain + csf  # + other
     # Close by a bit at first.
     ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
     closed = utils.binary_closing(tiv, ball)
@@ -842,7 +849,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     bits[tiv > 0] = 0
     if np.any(bits):
         #ball = utils.make_structural_sphere(aff, 2 * maxscale)
-        bits = utils.binary_dilation(bits, ball)    
+        bits = utils.binary_dilation(bits, ball)
         #tiv[bits > 0] = 0
         csf[bits > 0] = 0
         other[bits > 0] = 0
@@ -876,7 +883,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     clf2 = clf.get('2nd stage', clf['1st stage'])
     seg = clf2.classes_.take(np.argmax(probs, axis=1), axis=0)
     seg = seg.reshape(tiv.shape)
-    seg[edge == 0] = 0 
+    seg[edge == 0] = 0
     brain[seg == 1] = 1
     posterity += _note_progress(brain, "brain after growing")
     csf[seg == 2]   = 1
@@ -899,13 +906,13 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     csf[tiv == 0] = 0
     posterity += _note_progress(csf, "csf after removing disconnections")
     other[tiv == 0] = 0
-    posterity += _note_progress(other, "other after removing disconnections")    
+    posterity += _note_progress(other, "other after removing disconnections")
 
     lsvmmask = np.zeros_like(brain)
     lsvmmask[brain == 1] = 1
     lsvmmask[csf   == 1] = 2
     lsvmmask[other == 1] = 3
-    
+
     if '3rd stage' in clf:
         # Now reclassify using the blurred segmentations as morphological priors.
         for v in xrange(4):
@@ -943,7 +950,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         directory as this file if necessary.
     relbthresh: float
         The cutpoint between b0s and DWIs, as a fraction of max(bvals).
-        Only used if s0 is None.        
+        Only used if s0 is None.
     smoothrad: float
         The smoothing radius in mm
         This legacy parameter is used in training the classifier as well, so
@@ -964,7 +971,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         the data range supported by fslview, it is best to clip them at +- some
         value well away from 1.  Set to None if you really do not want to clamp.
     normslop: float
-        s0 needs to be normalized before it can be used with an SVM, so it is 
+        s0 needs to be normalized before it can be used with an SVM, so it is
         divided by median(s0[np.abs(madje - 1) < normslop]), where madje comes
         from make_mean_adje().
         It should be large enough to include most brain voxels, but small enough
@@ -975,6 +982,14 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     fvecs: str or None
         Optional filename of a .nii to load the (1st stage) feature vectors from.
         If not given, they will be made from data.
+    t1wtiv: str or None
+        Optional filename of a .nii to load the undistorted (e.g. T1w) intracranial
+        mask from. It must be in the same space as data, and is only used as a
+        suggestion.
+    t1fwhm: sequence of 3 floats in mm
+        FWHM of the Gaussian kernel to blur t1wtiv with to soften the suggestion.
+        Blur a bit to account for head motion, and more in the phase encoding
+        direction to account for EPI distortion.
 
     Output
     ------

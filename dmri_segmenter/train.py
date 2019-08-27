@@ -4,14 +4,14 @@ import numpy as np
 import nibabel as nib
 import os
 import scipy.ndimage as ndi
-import sys
+#import sys
 import sklearn                  # just to get .__version__
 from sklearn import ensemble
 #import sklearn.externals.joblib as joblib
 
 try:
     from skimage.filter import threshold_otsu as otsu
-except:
+except Exception:
     from dipy.segment.threshold import otsu
 
 import brine
@@ -50,22 +50,22 @@ def get_bvals(dwfn, bvalpat='*bval*'):
     """
     try:
         bvalfn = utils.get_1_file_or_hurl(os.path.splitext(dwfn)[0] + bvalpat)
-    except:
+    except Exception:
         bvalfn = utils.get_1_file_or_hurl(os.path.join(os.path.dirname(dwfn), bvalpat))
     bvals, _ = dipy.io.read_bvals_bvecs(bvalfn, None)
     return bvals
 
 
 def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
-                Dcsf=0.00305, blankval=0, clamp=30, normslop=0.2,
-                logclamp=-10, outlabel='fvecs'):
+               Dcsf=0.00305, blankval=0, clamp=30, normslop=0.2,
+               logclamp=-10, outlabel='fvecs'):
     bvals = get_bvals(dwfn)
     dwnii = nib.load(dwfn)
     aff = dwnii.affine
     data = dwnii.get_data()
-    
+
     fvecs, posterity = dbe.make_feature_vectors(data, aff, bvals, smoothrad=smoothrad)
-    
+
     outfn = dwfn.replace('.nii', '_%s.nii' % outlabel)
     outnii = nib.Nifti1Image(fvecs, aff)
     outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
@@ -124,29 +124,29 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
 
     if verbose:
         print "svecs.shape:", svecs.shape
-    
-    sfsvecs = svecs.reshape((nvox, svecs.shape[-1]))  # Reshaped feature vectors
-    ftargs = tmask.reshape((nvox,)).astype(tmasktype) # Flattened segmentations
-    mint = np.min(ftargs)                             # Minimum segmentation class
-    maxt = np.max(ftargs)                             # Maximum segmentation class
-    samps = np.empty((0, svecs.shape[-1]))            # Make a stub to append to.
-    targets = []                                      # Segmentation class for each sample
-    for t in xrange(mint, maxt + 1):                  # for each class,
-        tsamps = sfsvecs[ftargs == t]                 # feature vectors matching class
+
+    sfsvecs = svecs.reshape((nvox, svecs.shape[-1]))   # Reshaped feature vectors
+    ftargs = tmask.reshape((nvox,)).astype(tmasktype)  # Flattened segmentations
+    mint = np.min(ftargs)                              # Minimum segmentation class
+    maxt = np.max(ftargs)                              # Maximum segmentation class
+    samps = np.empty((0, svecs.shape[-1]))             # Make a stub to append to.
+    targets = []                                       # Segmentation class for each sample
+    for t in xrange(mint, maxt + 1):                   # for each class,
+        tsamps = sfsvecs[ftargs == t]                  # feature vectors matching class
         ntsamps = len(tsamps)
         if ntsamps > maxperclass:
             rows = np.random.randint(0, ntsamps, maxperclass)
             tsamps = tsamps[rows]
             ntsamps = maxperclass
         samps = np.vstack((samps, tsamps))        # Append tsamps to samps
-        targets += [t] * ntsamps                  # Annotate them 
+        targets += [t] * ntsamps                  # Annotate them
     return samps, np.array(targets)
 
 
 def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
                       useT1=False):
     fnii = nib.load(fvecsfn)
-    aff = fnii.get_affine()
+    aff = fnii.affine
     fvecs = fnii.get_data()
 
     if useT1:
@@ -154,7 +154,7 @@ def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
                                  'bdp/dtb_eddy_T1wTIV.nii')
     else:
         t1wtiv = None
-        
+
     # os.path.abspath is idempotent.
     clf = brine.debrine(os.path.abspath(fvcfn))
 
@@ -231,7 +231,7 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
                     "# of errors": ntsamps,
                     "available errors": dict([(k, sum(ttargs_err == k)) for k in xrange(mint, maxt + 1)
                                               if k != t])}
-        notes[t]['number sampled'] = notes[t]["available errors"].copy() # Only if ntsamps == maxperclass
+        notes[t]['number sampled'] = notes[t]["available errors"].copy()  # Only if ntsamps == maxperclass
         if ntsamps > maxperclass:
             rows = np.random.randint(0, ntsamps, maxperclass)
             tsamps = tsamps[rows]
@@ -252,14 +252,14 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
         ntsamps = len(tsamps)
         targets += [t] * ntsamps                  # Annotate them
         notes[t]['total sampled'] = ntsamps
-        
+
     return samps, np.array(targets), notes
 
 
 def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
           smoothrad=10.0, srclist_is_srcdirs=False, fvfn='dtb_eddy_fvecs.nii',
           rT1TIVfn=None, t1fwhm=[2.0, 10.0, 2.0], n_estimators=10,
-          max_features='auto', # 'auto' = sqrt(n_features)
+          max_features='auto',  # 'auto' = sqrt(n_features)
           max_depth=24, min_samples_split=2, min_samples_leaf=1,
           n_jobs=None, srcroot='training', segfn='dmri_segment_edited.nii',
           min_weight_fraction_leaf=5e-5, nstages=2):
@@ -295,7 +295,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         direction because of EPI distortion.
     n_estimators: int
         The number of trees in the forest.  10 works well for allowing
-        probabilities for the 2nd stage to be calculated using the 
+        probabilities for the 2nd stage to be calculated using the
         parliament of trees from the 1st stage.
     max_features: int, float, string or None, optional (default="auto"="sqrt")
         The number of features to consider when looking for the best split.
@@ -354,7 +354,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
             vols = src
         volslist.append(vols)
         snii = nib.load(os.path.join(vols, fvfn))
-        afflist.append(snii.get_affine())
+        afflist.append(snii.affine)
         svecs = snii.get_data()
         svecslist.append(svecs)
         tmasklist.append(nib.load(os.path.join(vols, segfn)).get_data())
@@ -385,7 +385,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         # props = res['src_properties'][i]
         # samplist[i][:, :1] -= delta
         # svecslist[i][..., :1] -= delta
-        
+
         if catsamps is None:
             catsamps = samplist[i]
             cattargs = targets
@@ -396,7 +396,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
     res['n_features'] = catsamps.shape[-1]
     res['n_classes'] = max(cattargs) + 1
     res['smoothrad'] = smoothrad
-            
+
     res['1st stage'] = ensemble.RandomForestClassifier(n_estimators=n_estimators,
                                                        class_weight=class_weight,
                                                        max_features=max_features,
@@ -431,7 +431,8 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
             svecs2[..., :svecs.shape[3]] = svecs
             sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
             for v in xrange(probs.shape[-1]):
-                ndi.filters.gaussian_filter(probs[..., v], sigma=sigma, output=svecs2[..., v + svecs.shape[3]],
+                ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
+                                            output=svecs2[..., v + svecs.shape[3]],
                                             mode='nearest')
             # svecs2 = np.empty(svecs.shape[:3] + (12,))
             # svecs2[..., :4] = svecs
@@ -517,7 +518,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
         if k != 'log':
             res['log'] += "\t%s:\n\t\t%s\n" % (k, v)
     res['log'] += "\nTrained %s on %s using sklearn %s.\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                                            os.uname()[1], sklearn.__version__)
+                                                              os.uname()[1], sklearn.__version__)
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
     return res, pfn, logfn

@@ -2,10 +2,11 @@ import numpy as np
 from scipy.ndimage.filters import median_filter
 try:
     from skimage.filter import threshold_otsu as otsu
-except:
+except Exception:
     from dipy.segment.threshold import otsu
 
 import utils
+
 
 class FLAIRity(object):
     """
@@ -14,13 +15,19 @@ class FLAIRity(object):
 
     It can be told to skip the determination and just hold the FLAIRity.
     """
-    def __init__(self, data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed,
-                 medrad, verbose=True, closerad=3.7, forced_flairity=None):
+    def __init__(self, data, aff, bvals, relbthresh=0.04, maxscale=None,
+                 Dt=0.0007, DCSF=0.003, nmed=2, medrad=1, verbose=True,
+                 closerad=3.7, forced_flairity=None):
         self.data = data
         self.aff = aff
         self.bvals = bvals
         self.relbthresh = relbthresh
+
+        if maxscale is None:
+            scales = utils.voxel_sizes(self.aff)
+            maxscale = max(scales)
         self.maxscale = maxscale
+
         self.Dt = Dt
         self.DCSF = DCSF
         self.nmed = nmed
@@ -33,13 +40,11 @@ class FLAIRity(object):
         self._mask = None
         self._csfmask = None
 
-        
     @property
     def flairity(self):
         if self._flairity is None:
             self._flairity = self.guessFLAIRity()
         return self._flairity
-
 
     @property
     def mask(self):
@@ -53,7 +58,6 @@ class FLAIRity(object):
             self.guessFLAIRity()  # Sets _csfmask as a side-effect.
         return self._csfmask
 
-
     def guessFLAIRity(self):
         """
         Guess at whether data's contrast suppressed free water or not, i.e. return
@@ -65,8 +69,6 @@ class FLAIRity(object):
         """
         b = np.asarray(self.bvals)
         b0 = utils.calc_average_s0(self.data, b, self.relbthresh, estimator=np.median)
-        scales = utils.voxel_sizes(self.aff)
-        maxscale = max(scales)
         embDt = np.exp(-b * self.Dt)
         embDCSF = np.exp(-b * self.DCSF)
         w = (embDt * (1.0 - embDCSF))**2
