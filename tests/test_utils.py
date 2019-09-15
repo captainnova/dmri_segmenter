@@ -1,4 +1,5 @@
 import dmri_segmenter.utils as utils
+from StringIO import StringIO
 import numpy as np
 import os
 import pytest
@@ -82,8 +83,14 @@ def test_get_1_file_and_hurl():
         utils.get_1_file_or_hurl(os.path.join(dsdir, 'd*'))
 
 
-def test_instaprint(capfd):
+def test_instaprint():
     msg = "Hello!\n"
-    utils.instaprint(msg)
-    out, err = capfd.readouterr()
-    out == msg
+    s = StringIO()
+    utils.instaprint(msg, s)
+    assert s.getvalue() == msg + "\n"
+
+
+def test_cond_to_mask():
+    seg = np.arange(5)
+    mask = utils.cond_to_mask(seg, 2)
+    assert (mask == np.array([0, 0, 1, 0, 0])).all()

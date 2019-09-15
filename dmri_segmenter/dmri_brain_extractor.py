@@ -8,8 +8,12 @@ import scipy.special
 #import sklearn.externals.joblib as joblib
 try:
     from skimage.filter import threshold_otsu as otsu
-except Exception:
+except ImportError:
     from dipy.segment.threshold import otsu
+try:
+    import six
+except ImportError:
+    import dipy.utils.six as six
 import socket
 import subprocess
 import sys
@@ -21,7 +25,7 @@ import utils
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.3.1 20190824"
+__version__ = "1.3.2 20190915"
 
 
 def get_subprocess_output(cmd):
@@ -37,7 +41,7 @@ def get_subprocess_output(cmd):
     CalledProcessError object will have the return code in the returncode
     attribute and output in the output attribute.
     """
-    if isinstance(cmd, str):
+    if isinstance(cmd, six.string_types):
         cmd = cmd.split()
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
@@ -627,8 +631,7 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
         # partial volume stuff, but large clumps of other are probably actually
         # dark brain, IF the T1 TIV can be relied on to get rid of other far
         # outside the brain.
-        other = np.zeros_like(seg)
-        other[seg == 3] = 1
+        other = utils.cond_to_mask(seg, 3)
         obrain = utils.binary_erosion(other)
         seg[obrain == 1] = 1
         probs[obrain == 1, 1] += probs[obrain == 1, 3]
@@ -751,8 +754,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         # Voxels which used to be air but were brought back by t1tiv are likely
         # to be other in a large enough lump that it would be removed by the
         # morphological filtering later.  Reclassify them as brain to protect them.
-        mask = np.zeros_like(tempmask)
-        mask[tempmask == 3] = 1
+        mask = utils.cond_to_mask(tempmask, 3)
         mask[lsvmmask > 0] = 0  # Leave old ones alone.
         lsvmmask = tempmask.copy()
         lsvmmask[mask > 0] = 1
@@ -779,8 +781,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # out of the RFC.  Other in direct contact with brain is much more reliable
     # than distant other, and large chunks of air or other that has been hole
     # filled (after a closing operation) can be reclassified as brain.
-    other = np.zeros_like(tiv)
-    other[lsvmmask == 3] = 1
+    other = utils.cond_to_mask(tiv, 3)
+
     tiv = brain + csf  # + other
     # Close by a bit at first.
     ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
@@ -908,8 +910,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     other[tiv == 0] = 0
     posterity += _note_progress(other, "other after removing disconnections")
 
-    lsvmmask = np.zeros_like(brain)
-    lsvmmask[brain == 1] = 1
+    lsvmmask = utils.cond_to_mask(brain, 1)
     lsvmmask[csf   == 1] = 2
     lsvmmask[other == 1] = 3
 
@@ -1007,7 +1008,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
 
     # Hurl early if we can't get a classifier.
     clffn = None
-    if isinstance(clf, str):
+    if isinstance(clf, six.string_types):
         clffn = clf
         if not os.path.isfile(clffn):
             try:
@@ -1030,7 +1031,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         posterity += "Classifier intercept scaling: %s\n" % clf['1st stage'].intercept_scaling
         posterity += "Classifier coefficients:\n%s\n\n" % clf['1st stage'].coef_
 
-    if isinstance(fvecs, str):
+    if isinstance(fvecs, six.string_types):
         fvnii = nib.load(fvecs)
         fvecs = fvnii.get_data()
         for ext in fvnii.header.extensions:

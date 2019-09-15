@@ -19,4 +19,4 @@ def test_make_segmentation(fvecfn):
     segfn = train.make_segmentation(fvecfn, clffn)
     assert os.path.isfile(segfn)
     segnii = nib.load(segfn)
-    assert (segnii.dataobj[37, 42, ::10] == [0, 3, 3, 3, 3, 3, 3]).all()
+    assert (segnii.dataobj[30, 20, -8:-2] == [0, 0, 3, 3, 2, 0]).all()

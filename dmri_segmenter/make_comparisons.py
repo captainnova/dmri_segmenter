@@ -5,14 +5,13 @@ import nibabel as nib
 import os
 import re
 import shutil
-
+try:
+    import six
+except ImportError:
+    import dipy.utils.six as six
 import brine
-
-
-def _cond_to_mask(seg, cond):
-    mask = np.zeros_like(seg)
-    mask[seg == cond] = 1
-    return mask
+from dmri_brain_extractor import save_mask
+from utils import cond_to_mask
 
 
 def dice(a, b):
@@ -44,7 +43,7 @@ def relative_error(trial, gold):
 
 
 def arr_from_file_or_arr(foa):
-    if isinstance(foa, str):
+    if isinstance(foa, six.string_types):
         return nib.load(foa).get_data()
     else:
         return foa
@@ -164,9 +163,9 @@ def compare_segmentations(trial='dtb_eddy_rfcseg.nii', gold='dtb_eddy_T1wTIV_edi
     results = {}
     tseg = nib.load(trial).get_data()
     gseg = nib.load(gold).get_data()
-    brains = [_cond_to_mask(tseg, 1), _cond_to_mask(gseg, 1)]
-    csfs   = [_cond_to_mask(tseg, 2), _cond_to_mask(gseg, 2)]
-    others = [_cond_to_mask(tseg, 3), _cond_to_mask(gseg, 3)]
+    brains = [cond_to_mask(tseg, 1), cond_to_mask(gseg, 1)]
+    csfs   = [cond_to_mask(tseg, 2), cond_to_mask(gseg, 2)]
+    others = [cond_to_mask(tseg, 3), cond_to_mask(gseg, 3)]
     results['brain'] = (jaccard_index(brains[0], brains[1]), dice(brains[0], brains[1]),
                         relative_error(brains[0], brains[1]))
     results['csf'] = (jaccard_index(csfs[0], csfs[1]), dice(csfs[0], csfs[1]), relative_error(csfs[0],
@@ -347,8 +346,7 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
 
 
 def mask_from_possible_filename(m, binarize=True, thresh=0):
-    if isinstance(m, str):
-        m = nib.load(m).get_data()
+    m = arr_from_file_or_arr(m)
     if binarize:
         m = m > thresh
     return m

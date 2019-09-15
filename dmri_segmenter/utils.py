@@ -235,6 +235,12 @@ def calc_average_s0(data, bvals, relbthresh=0.02, bcut=None,
     return estimator(data[..., bvals <= bcut], axis=-1)
 
 
+def cond_to_mask(seg, cond):
+    mask = np.zeros_like(seg)
+    mask[seg == cond] = 1
+    return mask
+
+
 def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
     """
     Fill holes in mask, where holes are defined as places in (a possibly

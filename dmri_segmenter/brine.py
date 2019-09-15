@@ -10,7 +10,7 @@ file and the object on the same line).
 #     import pickle               # subclassable
 import cPickle as pickle
 
-    
+
 def brine(obj, filename, protocol=-1):
     "cPickle.dump(obj) into filename."
     # b needed (outside UNIX) for protocol=-1 (highest avail)
