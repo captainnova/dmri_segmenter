@@ -1,3 +1,7 @@
+from __future__ import print_function
+from __future__ import absolute_import
+from builtins import range
+from builtins import object
 import numpy as np
 from scipy.ndimage.filters import median_filter
 try:
@@ -5,7 +9,7 @@ try:
 except Exception:
     from dipy.segment.threshold import otsu
 
-import utils
+from . import utils
 
 
 class FLAIRity(object):
@@ -88,15 +92,15 @@ class FLAIRity(object):
             if self.medrad >= 1:
                 ball = utils.make_structural_sphere(self.aff, self.medrad * self.maxscale)
                 if self.verbose:
-                    print "Median filtering %d times with radius %f." % (self.nmed,
-                                                                         self.medrad * self.maxscale)
-                for i in xrange(self.nmed):
+                    print("Median filtering %d times with radius %f." % (self.nmed,
+                                                                         self.medrad * self.maxscale))
+                for i in range(self.nmed):
                     tisssig = median_filter(tisssig, footprint=ball)
             elif self.medrad > 0:
-                print "Warning: not median filtering since medrad < 1."
+                print("Warning: not median filtering since medrad < 1.")
 
         if self.verbose:
-            print "Getting the Otsu threshold."
+            print("Getting the Otsu threshold.")
         thresh = otsu(tisssig)
         self._mask = np.zeros(tisssig.shape, np.bool)
         self._mask[tisssig >= thresh] = 1

@@ -1,5 +1,8 @@
+from __future__ import print_function
+from future import standard_library
+standard_library.install_aliases()
 import dmri_segmenter.utils as utils
-from StringIO import StringIO
+from io import StringIO
 import numpy as np
 import os
 import pytest
@@ -45,21 +48,21 @@ expfaharr[2, 6, 1:4] = 1
 def test_binary_closing():
     carr = utils.binary_closing(inarr)
     if not (carr == expcarr).all():
-        print carr
+        print(carr)
     assert (carr == expcarr).all() == True     # noqa - in this case True == True but True not is True
 
 
 def test_binary_opening():
     oarr = utils.binary_opening(inarr)
     if not (oarr == expoarr).all():
-        print oarr
+        print(oarr)
     assert (oarr == expoarr).all() == True     # noqa - in this case True == True but True not is True
 
 
 def test_fill_holes():
     farr, errval = utils.fill_holes(inp3d, np.eye(4))
     if not (farr == expfharr).all():
-        print farr[..., 1]
+        print(farr[..., 1])
     assert errval == 0
     assert (farr == expfharr).all() == True    # noqa - in this case True == True but True not is True
 
@@ -67,7 +70,7 @@ def test_fill_holes():
 def test_fill_axial_holes():
     farr, errval = utils.fill_axial_holes(inp3d)
     if not (farr == expfaharr).all():
-        print farr[..., 1]
+        print(farr[..., 1])
     assert errval == 0
     assert (farr == expfaharr).all() == True   # noqa - in this case True == True but True not is True
 

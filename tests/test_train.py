@@ -10,7 +10,12 @@ def test_make_fvecs(fvecfn, fakedata):
     assert (fvnii.affine == fakedata.aff).all()
     assert np.linalg.norm(fvnii.dataobj[40, 45, 35] -
                           [-0.00191109, 0.0, -0.68160387, -0.68159452, 1.0]) < 0.01
-    assert "\n\tsmoothrad = 4.000000 mm\n" in fvnii.header.extensions[0].get_content()
+
+    # In python 3 get_content() returns a bytes object. str() doesn't work as
+    # wanted (it prepends a b and escapes the \t and \n), so it needs to be
+    # decoded. ASCII would also work, and this is safe for both python 2(.7)
+    # and 3.
+    assert "\n\tsmoothrad = 4.000000 mm\n" in fvnii.header.extensions[0].get_content().decode("utf-8")
 
 
 def test_make_segmentation(fvecfn):

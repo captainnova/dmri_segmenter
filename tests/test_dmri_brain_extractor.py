@@ -1,3 +1,4 @@
+from builtins import str
 import dmri_segmenter.dmri_brain_extractor as dbe
 import dmri_segmenter.make_comparisons as mc
 import nibabel as nib

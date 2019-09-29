@@ -1,5 +1,10 @@
-# Functions used to compare dmri_brain_extractor to bet, dwi2mask, etc. for the paper.
-# Except for jaccard_index() they are unlikely to be used again.
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
+from builtins import map
+from builtins import str
+from builtins import range
+from past.utils import old_div
 import numpy as np
 import nibabel as nib
 import os
@@ -9,9 +14,12 @@ try:
     import six
 except ImportError:
     import dipy.utils.six as six
-import brine
-from dmri_brain_extractor import save_mask
-from utils import cond_to_mask
+from . import brine
+from .dmri_brain_extractor import save_mask
+from .utils import cond_to_mask
+
+# Functions used to compare dmri_brain_extractor to bet, dwi2mask, etc. for the paper.
+# Except for jaccard_index() they are unlikely to be used again.
 
 
 def dice(a, b):
@@ -21,9 +29,11 @@ def dice(a, b):
 
 def jaccard_index(a, b):
     """a and b must be binary!"""
-    u = np.asarray(a).copy()
-    u[b > 0] = 1
-    return float(np.sum(np.asarray(a) * np.asarray(b))) / u.sum()
+    aaa = np.asarray(a)
+    baa = np.asarray(b)
+    u = aaa.copy()
+    u[baa > 0] = 1
+    return float(np.sum(aaa * baa)) / u.sum()
 
 
 def relative_error(trial, gold):
@@ -95,7 +105,7 @@ def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dw
                         relerr, dc, ji = get_re_dc_and_ji(tfn, gold)
                         outfhs[trial].write("%s,%s,%s,%f,%f,%f\n" % (manuf, seq, subj, ji, dc, relerr))
     finally:
-        for outf in outfhs.itervalues():
+        for outf in outfhs.values():
             outf.close()
     return outfns
 
@@ -149,7 +159,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
                 if [manuf, seq, subj] != allrows[ir[0]][:3]:
                     raise ValueError("%s: mismatch for %s,%s" % (trial, ir, allrows[ir[0]][:3]))    
                 outf.write("%s,%s,%s,%s,%s\n" % (manuf, seq, trial_num, subj, ','.join(allrows[ir[0]][3:])))
-                batch.append(map(float, allrows[ir[0]][3:]))
+                batch.append(list(map(float, allrows[ir[0]][3:])))
                 if len(batch) == 12:
                     means = np.mean(batch, axis=0)
                     outf.write("Average,Both,%s,trial_set,%f,%f,%f\n" % (trial_num, means[0],
@@ -205,11 +215,11 @@ def make_segmentation_comparisons(trial='dtb_eddy_rfcseg',
                 afn = os.path.join(niidir, trial + '.nii')
                 bfn = os.path.join(niidir, gold_standard + '.nii')
                 results = compare_segmentations(afn, bfn)
-                for segtype, result in results.iteritems():
+                for segtype, result in results.items():
                     outfhs[segtype].write("%s,%s,%f,%f,%f\n" % (manuf, subj, result[0], result[1],
                                                                 result[2]))
     finally:
-        for outf in outfhs.itervalues():
+        for outf in outfhs.values():
             outf.close()
     return outfns
 
@@ -234,7 +244,7 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
         for trial in items:
             if trial_pat.match(trial):
                 trial_root = os.path.join(label, trial)
-                print "looking at", trial_root
+                print("looking at", trial_root)
                 trial_stats = {}
                 if os.path.isdir(trial_root):
                     for manuf in ['ge', 'philips', 'siemens']:
@@ -245,7 +255,7 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
                                 testfn = os.path.join(trial_root, mseq, subj, testim)
                                 goldfn = os.path.join(gold_standard_root, mseq, subj, gold_standard_im)
                                 results = compare_segmentations(testfn, goldfn)
-                                for segtype, result in results.iteritems():
+                                for segtype, result in results.items():
                                     outfhs[segtype].write("%s,%s,%s,%s,%f,%f,%f\n" % (manuf, seq, trial,
                                                                                       subj, result[0],
                                                                                       result[1], result[2]))
@@ -253,12 +263,12 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
                                         trial_stats[segtype] = []
                                     trial_stats[segtype].append(result)
                 # Add the mean across (manuf, seq, subj) for trial.
-                for segtype, rl in trial_stats.iteritems():
+                for segtype, rl in trial_stats.items():
                     means = np.array(rl).mean(axis=0)
                     outfhs[segtype].write("Average,Both,%s,trial_set,%f,%f,%f\n" % (trial, means[0],
                                                                                     means[1], means[2]))
     finally:
-        for outf in outfhs.itervalues():
+        for outf in outfhs.values():
             outf.close()
     return outfns
 
@@ -274,7 +284,7 @@ def symlink_remote(src, dst):
     dstdir, dstbase = os.path.split(dst)
     if not os.path.isabs(src):
         nsteps = len(dstdir.split('/'))
-        for d in xrange(nsteps):
+        for d in range(nsteps):
             src = '../' + src
     if not os.path.isdir(dstdir):
         os.makedirs(dstdir)
@@ -318,7 +328,7 @@ def cleanup_cv(label, scorefn='tiv_vs_dtb_eddy_T1wTIV_edited_segmentation.csv', 
                 pass  # header line
 
     # Keep the best and worst segmentation for label
-    for k, parts in extremes.iteritems():
+    for k, parts in extremes.items():
         outdir = os.path.join(label, k)
         os.mkdir(outdir)
         manuf, seq, trial, subj = parts
@@ -354,7 +364,7 @@ def mask_from_possible_filename(m, binarize=True, thresh=0):
 
 def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
     mask1 = mask_from_possible_filename(mask1fn)
-    aff = nib.load(mask1fn).get_affine()
+    aff = nib.load(mask1fn).affine
     mask2 = mask_from_possible_filename(mask2fn)
     gold = mask_from_possible_filename(goldfn)
     m1label = os.path.splitext(os.path.split(mask1fn)[-1])[0]
@@ -382,10 +392,10 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
     res[glabel + " only"][mask1 > 0] = False
     res[glabel + " only"][mask2 > 0] = False
 
-    for k, v in res.iteritems():
+    for k, v in res.items():
         save_mask(v, aff, k.replace(' ', '_') + '.nii')
 
-    sums = dict([(k, int(v.sum())) for k, v in res.iteritems()])
+    sums = dict([(k, int(v.sum())) for k, v in res.items()])
     sums[glabel] = int(gold.sum())
 
     relerr = {m1label: (mask1 != gold).sum() / float(sums[glabel]),
@@ -446,7 +456,7 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
     qtrainfn = 'qtrain_%s.sh' % label
     qsegfn = os.path.join(label, 'qmake_segmentations.sh')
     with open(qtrainfn, 'w') as qtf:
-        for trial in xrange(ntrials):
+        for trial in range(ntrials):
             train_list = []
             test_lists.append([])
             ltrial = os.path.join(label, str(trial))
@@ -480,7 +490,7 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
             for test_dir in test_list:
                 f.write("../../make_segmentation -o {trial}/{test_dir}/seg.nii ../{base}/{test_dir}/{lsvecs_fn} {trial}/RFC_classifier.pickle\n".format(**locals()))
     brine.brine(test_lists, os.path.join(label, 'test_lists.pickle'))
-    print "First\nqsw_a %s\nthen\nqsw_a %s" % (qtrainfn, qsegfn)
+    print("First\nqsw_a %s\nthen\nqsw_a %s" % (qtrainfn, qsegfn))
 
 
 def qmake_segmentation_to_test_lists():
@@ -505,6 +515,6 @@ def qmake_segmentation_to_test_lists():
     #for k, v in tld.iteritems():
     #    print k, len(v)
 
-    test_lists = [tld[k] for k in xrange(len(tld))]
+    test_lists = [tld[k] for k in range(len(tld))]
     brine.brine(test_lists, 'test_lists.pickle')
     return test_lists

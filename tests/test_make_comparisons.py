@@ -1,3 +1,4 @@
+from builtins import str
 import dmri_segmenter.make_comparisons as mc
 import nibabel as nib
 import numpy as np
@@ -50,7 +51,7 @@ def test_make_3way_comparison_image(tmpdir, fakedata):
     assert res['sums'] == expsums
 
     expre = {'m1': 0.0006107912873268022, 'm2': 0.0015726673303611363}
-    for k, v in expre.iteritems():
+    for k, v in expre.items():
         assert abs(res['relative errors'][k] - v) < 1e-5
     
     

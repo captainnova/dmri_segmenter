@@ -4,23 +4,34 @@ pickle's interface is annoying in that it doesn't include
 convenient for using it with readline in ipython (This way, you see the
 file and the object on the same line).
 """
-# try:
-#     import cPickle as pickle    # faster
-# except:
-#     import pickle               # subclassable
-import cPickle as pickle
+from future import standard_library
+standard_library.install_aliases()
+try:
+    import pickle as pickle    # faster if in python 2
+except:
+    import pickle               # subclassable, and/or python 3
 
 
 def brine(obj, filename, protocol=-1):
-    "cPickle.dump(obj) into filename."
+    "pickle.dump(obj) into filename."
     # b needed (outside UNIX) for protocol=-1 (highest avail)
     with open(filename, 'wb') as f:
         pickle.dump(obj, f, protocol)
 
 
-def debrine(filename):
-    "cPickle.load(open(filename))"
+def debrine(filename, encoding='latin1'):
+    """pickle.load(open(filename))
+
+    Use encoding='latin1' to load datetime, numpy, or scikit objects pickled in
+    Python 2 in Python 3. (Latin-1 works for any input as it maps the byte
+    values 0-255 to the first 256 Unicode codepoints directly:
+    https://stackoverflow.com/questions/28218466/unpickling-a-python-2-object-with-python-3/28218598#28218598
+    )
+    """
     obj = None
     with open(filename, 'rb') as f:
-        obj = pickle.load(f)
+        try:
+            obj = pickle.load(f, encoding=encoding)  # Python 3
+        except Exception:
+            obj = pickle.load(f)   # Python 2
     return obj

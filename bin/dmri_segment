@@ -17,6 +17,7 @@ Options:
   -h --help               Show this message and exit.
   --version               Show version and exit.
 """
+from __future__ import print_function
 from docopt import docopt
 import os
 import sys
@@ -33,4 +34,4 @@ args = docopt(__doc__, version='1.0.1')
 outfn = train.make_segmentation(args['<fvecsfn>'], args['<rfcfn>'],
                                 args.get('--custom'),
                                 args.get('--out'), args.get('--t1'))
-print "Wrote", outfn
+print("Wrote", outfn)

@@ -1,3 +1,7 @@
+from __future__ import print_function
+from __future__ import absolute_import
+from builtins import zip
+from builtins import range
 import datetime
 import dipy.io
 import numpy as np
@@ -14,9 +18,9 @@ try:
 except Exception:
     from dipy.segment.threshold import otsu
 
-import brine
-import dmri_brain_extractor as dbe
-import utils
+from . import brine
+from . import dmri_brain_extractor as dbe
+from . import utils
 
 trainees = {'RFC 20000 Siemens 0_0': 'rfc_20000_Siemens_0_0.pickle',
             'RFC 100000 Siemens 0_0': 'rfc_100000_Siemens_0_0.pickle',
@@ -69,7 +73,7 @@ def make_fvecs(dwfn, bthresh=0.02, smoothrad=10.0, s0=None, Dt=0.0021,
     outfn = dwfn.replace('.nii', '_%s.nii' % outlabel)
     outnii = nib.Nifti1Image(fvecs, aff)
     outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
-                                                               posterity))
+                                                               posterity.encode('utf-8')))
     nib.save(outnii, outfn)
     return outfn
 
@@ -123,7 +127,7 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
     nvox = np.prod(tmask.shape)
 
     if verbose:
-        print "svecs.shape:", svecs.shape
+        print("svecs.shape: %s" % svecs.shape)
 
     sfsvecs = svecs.reshape((nvox, svecs.shape[-1]))   # Reshaped feature vectors
     ftargs = tmask.reshape((nvox,)).astype(tmasktype)  # Flattened segmentations
@@ -131,7 +135,7 @@ def gather_svm_samples(svecs, tmask, maxperclass=100000,
     maxt = np.max(ftargs)                              # Maximum segmentation class
     samps = np.empty((0, svecs.shape[-1]))             # Make a stub to append to.
     targets = []                                       # Segmentation class for each sample
-    for t in xrange(mint, maxt + 1):                   # for each class,
+    for t in range(mint, maxt + 1):                   # for each class,
         tsamps = sfsvecs[ftargs == t]                  # feature vectors matching class
         ntsamps = len(tsamps)
         if ntsamps > maxperclass:
@@ -172,7 +176,7 @@ def make_segmentation(fvecsfn, fvcfn, custom_label=False, outfn=None,
         os.makedirs(outdir)
     outnii = nib.Nifti1Image(seg, aff)
     outnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
-                                                               posterity))
+                                                               posterity.encode('utf-8')))
     nib.save(outnii, outfn)
     return outfn
 
@@ -223,13 +227,13 @@ def gather_error_samples(svecs, trial, gold, maxperclass=5000,
     # for filling it, but both were introduced in python 2.7 and we're still
     # using 2.6.
     notes = {}
-    for t in xrange(mint, maxt + 1):
+    for t in range(mint, maxt + 1):
         tsamps = svecs_err[gold_err == t]
         ntsamps = len(tsamps)
         ttargs_err = trial_err[gold_err == t]
         notes[t] = {"# in class": sum(flatgold == t),
                     "# of errors": ntsamps,
-                    "available errors": dict([(k, sum(ttargs_err == k)) for k in xrange(mint, maxt + 1)
+                    "available errors": dict([(k, sum(ttargs_err == k)) for k in range(mint, maxt + 1)
                                               if k != t])}
         notes[t]['number sampled'] = notes[t]["available errors"].copy()  # Only if ntsamps == maxperclass
         if ntsamps > maxperclass:
@@ -362,7 +366,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
                                             maxperclass=maxperclass)
         nclasses = max(targets) + 1
         res['src_properties'].append([])
-        for c in xrange(nclasses):
+        for c in range(nclasses):
             sieve = (targets == c)
             n = sum(sieve)
             m = samps[sieve, 0].mean()  # 0 for s0.
@@ -375,7 +379,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
                                        weights=[t[1]['n']    # 1 for brain
                                                 for t in res['src_properties']])
     catsamps = None
-    for i in xrange(len(srclist)):
+    for i in range(len(srclist)):
         targets = targlist[i]
 
         # # Recalibrate s0 to bring the samples to a common brightness level.
@@ -430,7 +434,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
                 svecs2 = np.empty(svecs.shape[:3] + (svecs.shape[3] + probs.shape[-1],))
             svecs2[..., :svecs.shape[3]] = svecs
             sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
-            for v in xrange(probs.shape[-1]):
+            for v in range(probs.shape[-1]):
                 ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
                                             output=svecs2[..., v + svecs.shape[3]],
                                             mode='nearest')
@@ -478,7 +482,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
             # less useful than seg, which has benefitted from morphological mojo.
             # Eschew probs in favor of a smoothed seg.
             sigma = dbe.fwhm_to_voxel_sigma(smoothrad, aff)
-            for v in xrange(probs.shape[-1]):
+            for v in range(probs.shape[-1]):
                 unsmoothed = np.zeros(seg.shape)
                 unsmoothed[seg == v] = 1.0
                 ndi.filters.gaussian_filter(unsmoothed, sigma=sigma,
@@ -514,7 +518,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
     brine.brine(res, pfn)
 
     res['log'] += "\nClassifier attributes:\n"
-    for k, v in res.iteritems():
+    for k, v in res.items():
         if k != 'log':
             res['log'] += "\t%s:\n\t\t%s\n" % (k, v)
     res['log'] += "\nTrained %s on %s using sklearn %s.\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

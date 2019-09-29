@@ -1,3 +1,8 @@
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
+from builtins import range
+from past.utils import old_div
 from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
@@ -80,10 +85,7 @@ def binary_closing(arr, structure=None, out=None, mode='constant', cval=0,
     # conv is a dummy.
     binary, conv, structure = _check_img_and_selem(arr, structure)
 
-    # I mean // 2 here, but I'm worried that a from __future__ import division
-    # could cause problems.
-    pw = np.asarray(structure.shape) / 2
-
+    pw = np.asarray(structure.shape) // 2
     pad = [(p, p) for p in pw]
     binary = np.pad(binary, pad, mode=mode, constant_values=cval)
     tmp = binary_dilation(binary, structure, mode=mode, cval=cval, 
@@ -285,7 +287,7 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
         else:
             mask = msk.copy()
         if verbose:
-            print "Filling holes"
+            print("Filling holes")
         # Based on http://scikit-image.org/docs/dev/auto_examples/plot_holes_and_peaks.html
         # hmask = np.zeros(mask.shape)
         # for z in xrange(mask.shape[2]):
@@ -326,15 +328,15 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
         errval = 0
     except Exception as e:
         if verbose:
-            print "Problem trying to fill holes:", e
-            print "...continuing anyway..."
+            print("Problem trying to fill holes:", e)
+            print("...continuing anyway...")
         errval = e
     return mask, errval
 
 
 def fill_axial_holes(arr):
     mask = arr.copy()
-    for z in xrange(arr.shape[2]):
+    for z in range(arr.shape[2]):
         seed = arr[..., z].copy()
         seed[1:-1, 1:-1] = 1
         hmask = reconstruction(seed, mask[..., z], method='erosion')
@@ -383,12 +385,12 @@ def make_structural_sphere(aff, rad=None):
         The radius of the ball in units of aff.
         If None, the largest voxel dimension will be used.
     """
-    scales = np.abs([aff[i, i] for i in xrange(3)])
+    scales = np.abs([aff[i, i] for i in range(3)])
     maxscale = max(scales)
     if not rad:
         rad = maxscale
     if rad < maxscale:
-        print "Warning!  rad, %f, is < the largest voxel scale, %f." % (rad, maxscale)
+        print("Warning!  rad, %f, is < the largest voxel scale, %f." % (rad, maxscale))
 
     cent = np.asarray(np.floor(rad / scales), int)
     shape = 2 * cent + 1
@@ -396,11 +398,11 @@ def make_structural_sphere(aff, rad=None):
     r2 = rad**2
 
     # Loop over an octant
-    for i in xrange(cent[0] + 1):
+    for i in range(cent[0] + 1):
         xterm = (scales[0] * i)**2
-        for j in xrange(cent[1] + 1):
+        for j in range(cent[1] + 1):
             yterm = (scales[1] * j)**2
-            for k in xrange(cent[2] + 1):
+            for k in range(cent[2] + 1):
                 zterm = (scales[2] * k)**2
                 isin = xterm + yterm + zterm <= r2
 
@@ -452,7 +454,7 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
         3D array which is true for the largest component, and 0 elsewhere.
     """
     if verbose:
-        print "Removing disconnected components"
+        print("Removing disconnected components")
     cmask = mask.copy()
     if aff is None:
         aff = np.eye(4)
@@ -462,7 +464,7 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
         cmask = ndi.morphology.binary_dilation(cmask, ball)
     labelled, nb_labels = ndi.label(cmask)
     if verbose:
-        print "Found %d components" % nb_labels
+        print("Found %d components" % nb_labels)
     del cmask
 
     labels = np.arange(1, nb_labels + 1)
@@ -533,12 +535,12 @@ def voxel_sizes(aff):
     """
     n = aff.shape[0] - 1
     I = np.eye(n + 1)
-    return np.array([np.linalg.norm(np.dot(aff, I[i])) for i in xrange(n)])
+    return np.array([np.linalg.norm(np.dot(aff, I[i])) for i in range(n)])
 
 def _test():
     """
     Run the doctests of this module.
     """
     import doctest
-    import utils
+    from . import utils
     return doctest.testmod(utils)

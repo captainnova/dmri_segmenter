@@ -29,6 +29,7 @@ Options:
                             space.  If provided, a blurred copy of it will
                             be used as a prior.
 """
+from __future__ import print_function
 from docopt import docopt
 import os
 import sys
@@ -48,8 +49,8 @@ res, pfn, logfn = train(args['TRAIN_LIST'], args['CLASSIFIER'],
                         rT1TIVfn=args.get('--t1'),
                         smoothrad=float(args['--smoothrad']),
                         nstages=int(args.get('--nstages', 1)))
-print "result:", res
-print "classifier:", pfn
-print "log file:", logfn
+print("result:", res)
+print("classifier:", pfn)
+print("log file:", logfn)
 
 

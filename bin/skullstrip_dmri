@@ -48,6 +48,7 @@ Options:
                           [default: 1] (True)
   -w --whiskers           If given, do NOT try harder to trim whiskers.
 """
+from __future__ import print_function
 
 from dipy.io import read_bvals_bvecs
 from docopt import docopt
@@ -97,7 +98,7 @@ try:
                                             closerad=float(args['--cr']), isFLAIR=isFLAIR,
                                             svc=args['--svc'],
                                             trim_whiskers=not args.get('--whiskers'))
-except Exception, e:
+except Exception as e:
     if args['--verbose']:
         # Print the traceback
         import traceback
@@ -106,7 +107,7 @@ except Exception, e:
     else:
         # Don't print the traceback, because it tends to distract novices from
         # the error message you want them to read.
-        print >>sys.stderr, e
+        print(e, file=sys.stderr)
     sys.exit(1)
 
 sys.exit(0)

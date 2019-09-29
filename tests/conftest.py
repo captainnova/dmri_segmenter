@@ -1,3 +1,7 @@
+from builtins import str
+from builtins import map
+from builtins import range
+from builtins import object
 import dmri_segmenter.train as train
 import nibabel as nib
 import numpy as np
@@ -63,7 +67,6 @@ def fvecfn(tmpdir_factory, fakedata):
     # The coverage is better if this isn't dwfn.bval.
     bvalfn = os.path.join(testdir, 'bvalfn')
 
-    fakedata = Phantom()
     with open(bvalfn, 'w') as f:
         f.write("%s\n" % " ".join(map(str, fakedata.bvals)))
     nib.save(nib.nifti1.Nifti1Image(fakedata.data, fakedata.aff), dwfn)

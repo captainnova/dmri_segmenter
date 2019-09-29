@@ -1,3 +1,9 @@
+from __future__ import print_function
+from __future__ import absolute_import
+from __future__ import division
+from builtins import str
+from builtins import range
+from past.utils import old_div
 import datetime
 import nibabel as nib
 import numpy as np
@@ -18,9 +24,9 @@ import socket
 import subprocess
 import sys
 
-import brine
-from FLAIRity import FLAIRity
-import utils
+from . import brine
+from .FLAIRity import FLAIRity
+from . import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
@@ -28,7 +34,7 @@ import utils
 __version__ = "1.3.2 20190915"
 
 
-def get_subprocess_output(cmd):
+def get_subprocess_output(cmd, encoding='utf-8'):
     """
     Get the output and stderr of cmd as strs. Basically
     subprocess.check_output, but subprocess.check_output only became available
@@ -51,7 +57,7 @@ def get_subprocess_output(cmd):
     retcode = p.poll()
     if retcode:
         raise subprocess.CalledProcessError(retcode, cmd, output=out)
-    return out
+    return out.decode(encoding)
 
 
 def get_version_info(repo_info_cmd="git log --max-count=1"):
@@ -65,11 +71,8 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
         filename = "dmri_brain_extractor.py"
     vinfo = filename + " version: " + __version__ + "\n"
 
-    probable_repo_dir = os.path.dirname(filename)
-    startdir = os.path.abspath(os.curdir)
     try:
-        os.chdir(probable_repo_dir)
-        repo_info = get_subprocess_output(repo_info_cmd)
+        repo_info = get_subprocess_output(repo_info_cmd + " " + filename)
         if repo_info:
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
             vinfo += "The most recent dmri_segmenter commit was:\n"
@@ -79,8 +82,6 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
         # I don't think it's really worth worrying anyone if they installed
         # this outside of a repository.
         pass
-    finally:
-        os.chdir(startdir)
     return vinfo
 
 
@@ -91,7 +92,7 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     mnii = nib.Nifti1Image(arr.astype(outtype), aff)
     if exttext:
         mnii.header.extensions.append(nib.nifti1.Nifti1Extension('comment',
-                                                                 exttext))
+                                                                 exttext.encode('utf-8')))
     nib.save(mnii, outfn)
 
 
@@ -203,7 +204,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             flair_msg += "non-"
         flair_msg += "FLAIR scan as instructed."
     if verbose:
-        print flair_msg
+        print(flair_msg)
 
     if not flairness.flairity:
         mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
@@ -223,7 +224,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
             if dilate >= 1:
                 dilrad = dilate * maxscale
                 if verbose:
-                    print "Dilating with radius %f." % dilrad
+                    print("Dilating with radius %f." % dilrad)
                 ball = utils.make_structural_sphere(aff, dilrad)
                 mask = utils.binary_dilation(mask, ball)
             else:
@@ -254,7 +255,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         # Remove anything within whiskrad of the undilated whiskers, to account for the gap
         # made by dilating omask.
         if verbose:
-            print "Removing %d whisker voxels" % sum(mask[whiskers > 0])
+            print("Removing %d whisker voxels" % sum(mask[whiskers > 0]))
         mask[whiskers > 0] = 0
         mask = utils.remove_disconnected_components(mask, aff, dilrad, verbose=verbose)
 
@@ -318,7 +319,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         save_mask(tiv, aff, tivfn, exttext)
     if verbose:
         # Useful if running in the background on a terminal.
-        print "get_dmri_brain_and_tiv finished"
+        print("get_dmri_brain_and_tiv finished")
     return mask, tiv
 
 
@@ -372,7 +373,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     madje = np.zeros(data.shape[:-1])
     w /= w.sum()
     for v, etv in enumerate(et):
-        vw = w[v] / etv
+        vw = old_div(w[v], etv)
         if vw > 0:
             madje += vw * data[..., v]
     #madje = np.average(dataoet, axis=-1, weights=w)
@@ -425,14 +426,14 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     # dilution, so some stretching is needed for them.
     maxscale = max(voxdims)
     compscale = np.sqrt(0.5 * (dr**2 + maxscale**2))
-    sigma = compscale / voxdims
+    sigma = old_div(compscale, voxdims)
 
     norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
     intensity_scale = np.std(pd)
     norm = np.sqrt(norm**2 + (softener * intensity_scale)**2)
 
     # Use mode='constant' (with implied cval=0) so that the TIV is capped.
-    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
+    grad = old_div(ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant'), norm)
 
     thresh = relthresh * otsu(grad)
     gradmask = np.zeros(s0.shape, dtype=np.uint8)
@@ -527,7 +528,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     fvecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
                                                      blankval=blankval, clamp=clamp)
 
-    fvecs[..., 0] = s0 / brightness_scale
+    fvecs[..., 0] = old_div(s0, brightness_scale)
 
     ball = utils.make_structural_sphere(aff, smoothrad)
     median_filter(fvecs[..., 2], footprint=ball, output=fvecs[..., 3], mode='nearest')
@@ -537,7 +538,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         # Before blurring the grad based TIV, close it to avoid demphasizing
         # susceptibility horns.
         gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
-        sigma = smoothrad / utils.voxel_sizes(aff)
+        sigma = old_div(smoothrad, utils.voxel_sizes(aff))
         gbtiv = utils.binary_closing(gbtiv, ball)
         fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(np.float), sigma, mode='nearest')
 
@@ -658,7 +659,7 @@ def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
         Standard deviations in voxel coordinates
     """
     scales = utils.voxel_sizes(aff)
-    return fwhm_per_sigma * np.asarray(fwhm) / scales
+    return old_div(fwhm_per_sigma * np.asarray(fwhm), scales)
 
 
 def _note_progress(mask, label):
@@ -706,7 +707,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
     augvecs[..., :fvecs.shape[-1]] = fvecs
     sigma = fwhm_to_voxel_sigma(smoothrad, aff)
-    for v in xrange(probs.shape[-1]):
+    for v in range(probs.shape[-1]):
         ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
                                     output=augvecs[..., v + fvecs.shape[-1]],
                                     mode='nearest')
@@ -731,7 +732,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         t1tiv = ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data().astype(np.float),
                                             sigma=t1sigma, mode='nearest')
         probs[..., 0] *= 1 - t1tiv
-        for t in xrange(1, 4):
+        for t in range(1, 4):
             probs[..., t] *= t1tiv
 
         # Deal with t1tiv's absolutes or practical absolutes. (Don't use ==, it doesn't work here.)
@@ -916,7 +917,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
 
     if '3rd stage' in clf:
         # Now reclassify using the blurred segmentations as morphological priors.
-        for v in xrange(4):
+        for v in range(4):
             unsmoothed = np.zeros(lsvmmask.shape)
             unsmoothed[lsvmmask == v] = 1.0
             ndi.filters.gaussian_filter(unsmoothed, sigma=sigma,

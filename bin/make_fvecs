@@ -18,6 +18,7 @@ Options:
   -h --help                    Show this message and exit.
   --version                    Show version and exit.
 """
+from __future__ import print_function
 
 from docopt import docopt
 import os
@@ -34,5 +35,5 @@ args = docopt(__doc__, version='0.9.0')
 
 outfn = train.make_fvecs(args['<dwfn>'], smoothrad=float(args['--smooth']),
                          outlabel=args['--label'])
-print "Wrote", outfn
+print("Wrote", outfn)
 sys.exit(0)
