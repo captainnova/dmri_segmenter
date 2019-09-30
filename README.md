@@ -48,8 +48,8 @@ All but the first two can be installed with pip(env).
 - scikit-learn
 
 ## Versions
-1.2.0 released 2019-09-29 (adds python 3 compatibility)
-1.1.0 released 2019-07-28 (1st release on github, after > 1 year of in-house use.)
+- 1.2.0 released 2019-09-29 (adds python 3 compatibility)
+- 1.1.0 released 2019-07-28 (1st release on github, after > 1 year of in-house use.)
 
 ## Skull Stripping
 Don't worry - you probably won't need the options!
