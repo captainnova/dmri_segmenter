@@ -33,9 +33,9 @@ brain volume.
 Licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 
 ## Dependencies
-All but the first two can be installed with pip.
+All but the first two can be installed with pip(env).
 - POSIX? (not yet tested with Windows)
-- python 2.6+, not yet tested with python 3.
+- python 2.6+, or python 3(.6+?)
 - dipy
   - Dependencies:
     - nibabel
@@ -43,11 +43,13 @@ All but the first two can be installed with pip.
     - (If installing via pip): 
       - sudo apt install python-dev (Debian and its derivatives)
       - sudo yum install python-devel (Red Hat and its derivatives)
+- future (for python 2/3 compatibility)
 - scikit-image
 - scikit-learn
 
 ## Versions
-1.1.0 released 2019-07-28.
+1.2.0 released 2019-09-29 (adds python 3 compatibility)
+1.1.0 released 2019-07-28 (1st release on github, after > 1 year of in-house use.)
 
 ## Skull Stripping
 Don't worry - you probably won't need the options!
