@@ -1,11 +1,11 @@
 from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
-import dmri_segmenter.utils as utils
-from io import StringIO
-import numpy as np
-import os
-import pytest
+import dmri_segmenter.utils as utils   # noqa E402
+from io import StringIO   # noqa E402
+import numpy as np   # noqa E402
+import os   # noqa E402
+import pytest   # noqa E402
 
 inarr = np.array(
     [[0, 0, 0, 0, 0, 0, 0, 0, 0],

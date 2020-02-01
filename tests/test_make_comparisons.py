@@ -1,6 +1,5 @@
 from builtins import str
 import dmri_segmenter.make_comparisons as mc
-import nibabel as nib
 import numpy as np
 import os
 import pytest
@@ -13,7 +12,7 @@ import pytest
 def test_get_re_dc_and_ji(test_input, expected):
     rdj = mc.get_re_dc_and_ji(*test_input)
     assert (np.abs(rdj - np.array(expected)) < 0.01).all()
-    
+
 
 def test_mask_from_possible_filename():
     inp = 0.5 * np.arange(5)
@@ -21,7 +20,7 @@ def test_mask_from_possible_filename():
     exp = np.array([0, 0, 1, 1, 1])
     assert (out == exp).all()
 
-        
+
 def test_make_3way_comparison_image(tmpdir, fakedata):
     testdir = str(tmpdir)
     m1 = fakedata.phantom.copy()
@@ -37,7 +36,7 @@ def test_make_3way_comparison_image(tmpdir, fakedata):
     gfn = os.path.join(testdir, 'g.nii')
     mc.save_mask(fakedata.phantom, fakedata.aff, gfn)
     res = mc.make_3way_comparison_image(m1fn, m2fn, gfn)
-    
+
     for fn in (m1fn, m2fn, gfn):
         assert os.path.isfile(fn)
 
@@ -53,6 +52,3 @@ def test_make_3way_comparison_image(tmpdir, fakedata):
     expre = {'m1': 0.0006107912873268022, 'm2': 0.0015726673303611363}
     for k, v in expre.items():
         assert abs(res['relative errors'][k] - v) < 1e-5
-    
-    
-
