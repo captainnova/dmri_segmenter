@@ -2,7 +2,7 @@ from __future__ import print_function
 from __future__ import absolute_import
 from __future__ import division
 from builtins import range
-from past.utils import old_div
+#from past.utils import old_div
 from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
@@ -31,7 +31,7 @@ def _check_img_and_selem(img, structure):
         raise TypeError('Complex type not supported')
     if not structure.flags.contiguous:
         structure = structure.copy()
-    if np.product(structure.shape,axis=0) < 1:
+    if np.product(structure.shape, axis=0) < 1:
         raise RuntimeError('structure must not be empty')
 
     if np.sum(structure) <= 255:
@@ -88,7 +88,7 @@ def binary_closing(arr, structure=None, out=None, mode='constant', cval=0,
     pw = np.asarray(structure.shape) // 2
     pad = [(p, p) for p in pw]
     binary = np.pad(binary, pad, mode=mode, constant_values=cval)
-    tmp = binary_dilation(binary, structure, mode=mode, cval=cval, 
+    tmp = binary_dilation(binary, structure, mode=mode, cval=cval,
                           origin=origin)
     tmp = binary_erosion(tmp, structure, out=out, mode=mode,
                          cval=cval, origin=origin)
@@ -177,15 +177,16 @@ def binary_erosion(arr, structure=None, out=None, mode='nearest', cval=0.0, orig
         out = np.empty_like(binary, dtype=np.uint8)  # np.bool might be more logical.
     return np.equal(conv, np.sum(structure), out=out)
 
+
 def binary_opening(arr, structure=None, out=None, mode='nearest', cval=0.0,
                    origin=0):
     """
     Multidimensional binary opening with a given structuring element.
-    
+
     Like scipy.ndimage.binary_opening() except it
         * supports changing the way array borders are handled, and
         * does not support iterations, mask, or border_value (handle those yourself).
-    
+
     Parameters
     ----------
     arr: array_like
@@ -213,7 +214,7 @@ def binary_opening(arr, structure=None, out=None, mode='nearest', cval=0.0,
         Opening of arr by the structuring element.
     """
     binary, conv, structure = _check_img_and_selem(arr, structure)
-    tmp = binary_erosion(binary, structure, mode=mode, cval=cval, 
+    tmp = binary_erosion(binary, structure, mode=mode, cval=cval,
                          origin=origin)
     return binary_dilation(tmp, structure, out=out, mode=mode,
                            cval=cval, origin=origin)
@@ -318,7 +319,7 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
         hmask = reconstruction(seed, dmask, method='erosion')
 
         if dilrad > 0:
-            # Remove dmask's dilation and leave just the holes, 
+            # Remove dmask's dilation and leave just the holes,
             hmask = binary_erosion(hmask, ball)
             #hmask[dmask > 0] = 0
             # but replace dilation that was part of a hole.
@@ -427,7 +428,7 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
     mask: array-like
         3D array which is true where there is a component, and 0 elsewhere.
     aff: None or 4x4 float array
-        The voxel-to-world coordinate affine array of the mask.  
+        The voxel-to-world coordinate affine array of the mask.
         Must be given if dilrad > 0.
     dilrad: float
         Radius in aff's units (mm by the Nifti standard) to dilate by
@@ -477,8 +478,8 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
             nkeep = max(1, len(sizes[sizes > thresh]))
         else:
             nkeep = 1
-    keep_indices = np.argpartition(sizes, -nkeep)[-nkeep:] # O(n), requires numpy >= 1.8
-    
+    keep_indices = np.argpartition(sizes, -nkeep)[-nkeep:]  # O(n), requires numpy >= 1.8
+
     if inplace:
         mymask = mask
     else:
@@ -508,6 +509,7 @@ def suggest_number_of_processors(fraction=0.25):
     """
     return max(1, int(fraction * cpu_count()))
 
+
 def voxel_sizes(aff):
     """
     Get the lengths of a voxel along each axis.
@@ -534,8 +536,9 @@ def voxel_sizes(aff):
     [ 1.1999999   0.99999999  1.00000002]
     """
     n = aff.shape[0] - 1
-    I = np.eye(n + 1)
+    I = np.eye(n + 1)      # noqa
     return np.array([np.linalg.norm(np.dot(aff, I[i])) for i in range(n)])
+
 
 def _test():
     """

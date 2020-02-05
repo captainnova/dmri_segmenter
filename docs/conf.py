@@ -22,7 +22,7 @@ import os
 import sys
 sys.path.insert(0, os.path.abspath('..'))
 
-import dmri_segmenter
+import dmri_segmenter  # noqa E402
 
 # -- General configuration ---------------------------------------------
 
@@ -48,7 +48,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'dmri_segmenter'
-copyright = u"2019, Robert I. Reid"
+copyright = u"2020, Robert I. Reid"
 author = u"Robert I. Reid"
 
 # The version info for the project you're documenting, acts as replacement

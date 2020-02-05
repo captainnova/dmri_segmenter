@@ -1,13 +1,15 @@
+from __future__ import print_function
 from builtins import str
 from builtins import map
 from builtins import range
 from builtins import object
-import dmri_segmenter.train as train
 import nibabel as nib
 import numpy as np
 import os
 import pytest
 from scipy.ndimage.filters import convolve
+
+import dmri_segmenter.train as train
 
 
 class Phantom(object):
