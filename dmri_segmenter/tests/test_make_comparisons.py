@@ -22,18 +22,18 @@ def test_mask_from_possible_filename():
 
 
 def test_make_3way_comparison_image(tmpdir, fakedata):
-    testdir = str(tmpdir)
     m1 = fakedata.phantom.copy()
     m1[40, 40:50, ::5] = 0
     m1[40, 51] = 1
-    m1fn = os.path.join(testdir, 'm1.nii')
+    m1fn = str(tmpdir.join('m1.nii'))
+    assert m1fn != 'm1.nii'
     mc.save_mask(m1, fakedata.aff, m1fn)
     m2 = fakedata.phantom.copy()
     m2[40, 40:50, ::2] = 0
     m2[40, 52] = 1
-    m2fn = os.path.join(testdir, 'm2.nii')
+    m2fn = str(tmpdir.join('m2.nii'))
     mc.save_mask(m2, fakedata.aff, m2fn)
-    gfn = os.path.join(testdir, 'g.nii')
+    gfn = str(tmpdir.join('g.nii'))
     mc.save_mask(fakedata.phantom, fakedata.aff, gfn)
     res = mc.make_3way_comparison_image(m1fn, m2fn, gfn)
 

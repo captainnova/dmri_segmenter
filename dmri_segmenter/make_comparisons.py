@@ -157,7 +157,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
             for ir in indexed_rows:
                 manuf, seq, trial_num, subj = ir[1:]
                 if [manuf, seq, subj] != allrows[ir[0]][:3]:
-                    raise ValueError("%s: mismatch for %s,%s" % (trial, ir, allrows[ir[0]][:3]))    
+                    raise ValueError("%s: mismatch for %s,%s" % (trial, ir, allrows[ir[0]][:3]))
                 outf.write("%s,%s,%s,%s,%s\n" % (manuf, seq, trial_num, subj, ','.join(allrows[ir[0]][3:])))
                 batch.append(list(map(float, allrows[ir[0]][3:])))
                 if len(batch) == 12:
@@ -362,7 +362,21 @@ def mask_from_possible_filename(m, binarize=True, thresh=0):
     return m
 
 
-def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
+def make_3way_comparison_image(mask1fn, mask2fn, goldfn, outdir=None):
+    """
+    Compare 3 masks to each other.
+
+    Parameters
+    ----------
+    mask1fn: str
+    mask2fn: str
+    goldfn: str
+        Filename of the gold standard mask.
+    outdir: None or str
+        If not None, difference .niis will be written to this directory.
+        If '', it will use the directory of mask1fn.
+        The directory will be made if necessary.
+    """
     mask1 = mask_from_possible_filename(mask1fn)
     aff = nib.load(mask1fn).affine
     mask2 = mask_from_possible_filename(mask2fn)
@@ -392,8 +406,13 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
     res[glabel + " only"][mask1 > 0] = False
     res[glabel + " only"][mask2 > 0] = False
 
-    for k, v in res.items():
-        save_mask(v, aff, k.replace(' ', '_') + '.nii')
+    if outdir is not None:
+        if not outdir:
+            outdir = os.path.dirname(mask1fn)
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        for k, v in res.items():
+            save_mask(v, aff, os.path.join(outdir, k.replace(' ', '_') + '.nii'))
 
     sums = dict([(k, int(v.sum())) for k, v in res.items()])
     sums[glabel] = int(gold.sum())
@@ -401,6 +420,7 @@ def make_3way_comparison_image(mask1fn, mask2fn, goldfn):
     relerr = {m1label: (mask1 != gold).sum() / float(sums[glabel]),
               m2label: (mask2 != gold).sum() / float(sums[glabel])}
     return {"images": res, "sums": sums, "relative errors": relerr}
+
 
 # Cross-validation samples, because for comparing one method to another, there
 # doesn't have to be just one training and one test set - multiple training and
@@ -472,7 +492,7 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
             if train_list:
                 # print "Training for trial %d" % trial
                 # res, pfn, logfn = train.train_both_stages_from_multiple(train_list,
-                #                                                         os.path.join(ltrial, 'classifier'),
+                #                                                         os.path.join(ltrial, 'classifier'),  # noqa
                 #                                                         srclist_is_srcdirs=True,
                 #                                                         lsvecs_fn=lsvecs_fn,
                 #                                                         maxperclass=maxperclass,
@@ -488,7 +508,7 @@ def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standar
     with open(qsegfn, 'w') as f:
         for trial, test_list in enumerate(test_lists):
             for test_dir in test_list:
-                f.write("../../make_segmentation -o {trial}/{test_dir}/seg.nii ../{base}/{test_dir}/{lsvecs_fn} {trial}/RFC_classifier.pickle\n".format(**locals()))
+                f.write("../../make_segmentation -o {trial}/{test_dir}/seg.nii ../{base}/{test_dir}/{lsvecs_fn} {trial}/RFC_classifier.pickle\n".format(**locals()))  # noqa
     brine.brine(test_lists, os.path.join(label, 'test_lists.pickle'))
     print("First\nqsw_a %s\nthen\nqsw_a %s" % (qtrainfn, qsegfn))
 

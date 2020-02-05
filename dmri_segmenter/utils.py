@@ -528,22 +528,12 @@ def voxel_sizes(aff):
     -------
     # n3aff = n3amnii.get_affine()
     >>> n3aff = np.array([[ 1.19919360, 0.00114195282,   0.0366344191, -110.058807],
-    [-0.0119082807, 0.970612407,   0.240443468,  -159.362793],
-    [-0.0423398949, -0.240645453,  0.969971597,   -73.272484],
-    [  0,           0,             0,               1])
-    >>> scales = voxel_sizes(n3aff)
-    >>> print scales
-    [ 1.1999999   0.99999999  1.00000002]
+    ... [-0.0119082807, 0.970612407,   0.240443468,  -159.362793],
+    ... [-0.0423398949, -0.240645453,  0.969971597,   -73.272484],
+    ... [  0,           0,             0,               1]])
+    >>> voxel_sizes(n3aff)
+    array([1.1999999 , 0.99999999, 1.00000002])
     """
     n = aff.shape[0] - 1
     I = np.eye(n + 1)      # noqa
     return np.array([np.linalg.norm(np.dot(aff, I[i])) for i in range(n)])
-
-
-def _test():
-    """
-    Run the doctests of this module.
-    """
-    import doctest
-    from . import utils
-    return doctest.testmod(utils)
