@@ -6,10 +6,7 @@ file and the object on the same line).
 """
 from future import standard_library
 standard_library.install_aliases()
-try:
-    import pickle as pickle    # faster if in python 2
-except:
-    import pickle               # subclassable, and/or python 3
+import pickle                              # noqa E402
 
 
 def brine(obj, filename, protocol=-1):

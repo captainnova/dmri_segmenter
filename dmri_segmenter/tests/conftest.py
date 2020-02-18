@@ -9,7 +9,10 @@ import os
 import pytest
 from scipy.ndimage.filters import convolve
 
+#print("__name__", __name__)
+
 import dmri_segmenter.train as train
+#from .. import train
 
 
 class Phantom(object):

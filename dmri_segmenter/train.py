@@ -17,9 +17,20 @@ try:
 except Exception:
     from dipy.segment.threshold import otsu
 
-from . import brine
-from . import dmri_brain_extractor as dbe
-from . import utils
+#print("train name: %s" % __name__)
+
+try:
+    from . import brine
+    from . import dmri_brain_extractor as dbe
+    from . import utils
+    # import dmri_segmenter.brine as brine
+    # import dmri_segmenter.dmri_brain_extractor as dbe
+    # import dmri_segmenter.utils as utils
+except Exception as e:       # I don't think Python 2 has ModuleNotFoundErrors
+    # print("importing error: %s" % e)
+    import brine
+    import dmri_brain_extractor as dbe
+    import utils
 
 trainees = {'RFC 20000 Siemens 0_0': 'rfc_20000_Siemens_0_0.pickle',
             'RFC 100000 Siemens 0_0': 'rfc_100000_Siemens_0_0.pickle',

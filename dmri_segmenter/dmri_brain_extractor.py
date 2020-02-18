@@ -3,7 +3,6 @@ from __future__ import absolute_import
 from __future__ import division
 from builtins import str
 from builtins import range
-from past.utils import old_div
 import datetime
 import nibabel as nib
 import numpy as np
@@ -24,14 +23,19 @@ import socket
 import subprocess
 import sys
 
-from . import brine
-from .FLAIRity import FLAIRity
-from . import utils
+try:
+    from . import brine
+    from .FLAIRity import FLAIRity
+    from . import utils
+except Exception:
+    import brine
+    import FLAIRity
+    import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.3.2 20190915"
+__version__ = "1.3.3 20200218"
 
 
 def get_subprocess_output(cmd, encoding='utf-8'):
@@ -66,7 +70,7 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
     the last commit message.
     """
     try:
-        filename = __file__
+        filename = __file__.replace('.pyc', '.py')
     except Exception:
         filename = "dmri_brain_extractor.py"
     vinfo = filename + " version: " + __version__ + "\n"
@@ -373,7 +377,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     madje = np.zeros(data.shape[:-1])
     w /= w.sum()
     for v, etv in enumerate(et):
-        vw = old_div(w[v], etv)
+        vw = w[v] / etv
         if vw > 0:
             madje += vw * data[..., v]
     #madje = np.average(dataoet, axis=-1, weights=w)
@@ -426,14 +430,14 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     # dilution, so some stretching is needed for them.
     maxscale = max(voxdims)
     compscale = np.sqrt(0.5 * (dr**2 + maxscale**2))
-    sigma = old_div(compscale, voxdims)
+    sigma = compscale / voxdims
 
     norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
     intensity_scale = np.std(pd)
     norm = np.sqrt(norm**2 + (softener * intensity_scale)**2)
 
     # Use mode='constant' (with implied cval=0) so that the TIV is capped.
-    grad = old_div(ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant'), norm)
+    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
 
     thresh = relthresh * otsu(grad)
     gradmask = np.zeros(s0.shape, dtype=np.uint8)
@@ -528,7 +532,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     fvecs[..., 2], brightness_scale = make_mean_adje(data, bvals, s0=s0, Dt=Dt, Dcsf=Dcsf,
                                                      blankval=blankval, clamp=clamp)
 
-    fvecs[..., 0] = old_div(s0, brightness_scale)
+    fvecs[..., 0] = s0 / brightness_scale
 
     ball = utils.make_structural_sphere(aff, smoothrad)
     median_filter(fvecs[..., 2], footprint=ball, output=fvecs[..., 3], mode='nearest')
@@ -538,7 +542,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         # Before blurring the grad based TIV, close it to avoid demphasizing
         # susceptibility horns.
         gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
-        sigma = old_div(smoothrad, utils.voxel_sizes(aff))
+        sigma = smoothrad / utils.voxel_sizes(aff)
         gbtiv = utils.binary_closing(gbtiv, ball)
         fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(np.float), sigma, mode='nearest')
 
@@ -658,8 +662,7 @@ def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
     sigma: (3,) array
         Standard deviations in voxel coordinates
     """
-    scales = utils.voxel_sizes(aff)
-    return old_div(fwhm_per_sigma * np.asarray(fwhm), scales)
+    return fwhm_per_sigma * np.asarray(fwhm) / utils.voxel_sizes(aff)
 
 
 def _note_progress(mask, label):

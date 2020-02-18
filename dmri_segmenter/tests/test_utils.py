@@ -2,7 +2,10 @@ from __future__ import print_function
 from future import standard_library
 standard_library.install_aliases()
 import dmri_segmenter.utils as utils   # noqa E402
-from io import StringIO   # noqa E402
+try:
+    from StringIO import StringIO    # noqa E402, Python 2
+except Exception:
+    from io import StringIO   # noqa E402, Both, but uses Unicode even in Python 2.
 import numpy as np   # noqa E402
 import os   # noqa E402
 import pytest   # noqa E402

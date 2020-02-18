@@ -9,7 +9,10 @@ try:
 except Exception:
     from dipy.segment.threshold import otsu
 
-from . import utils
+try:
+    from . import utils
+except Exception:
+    import utils
 
 
 class FLAIRity(object):

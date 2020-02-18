@@ -368,7 +368,7 @@ def get_1_file_or_hurl(pat):
 
 
 def instaprint(msg, stream=sys.stdout):
-    stream.write(msg + "\n")
+    stream.write("%s\n" % msg)
     stream.flush()
 
 
