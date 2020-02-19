@@ -2,8 +2,12 @@ from __future__ import absolute_import
 import nibabel as nib
 import numpy as np
 
-from . import dmri_brain_extractor as dbe
-from . import utils
+try:
+    from . import dmri_brain_extractor as dbe
+    from . import utils
+except Exception:
+    import dmri_brain_extractor as dbe
+    import utils
 
 
 def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
