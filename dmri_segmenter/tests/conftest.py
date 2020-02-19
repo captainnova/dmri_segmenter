@@ -22,6 +22,9 @@ class Phantom(object):
         phantom = np.zeros((80, 90, 70), dtype=np.uint8)
         phantom[10:65, 10:70, 2:65] = 1
 
+        # Make a hole.
+        phantom[40:50, 30:50, 30:40] = 0
+
         # Add a disconnected blip.
         phantom[2:5, 2:5, 66:69] = 1
 

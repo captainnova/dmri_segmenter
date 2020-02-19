@@ -40,15 +40,15 @@ def test_make_3way_comparison_image(tmpdir, fakedata):
     for fn in (m1fn, m2fn, gfn):
         assert os.path.isfile(fn)
 
-    expsums = {'g': 207927,
-               'g only': 60,
-               'm1 and g only': 260,
+    expsums = {'g': 205927,
+               'g only': 50,
+               'm1 and g only': 220,
                'm1 and m2 only': 0,
                'm1 only': 7,
-               'm2 and g only': 60,
+               'm2 and g only': 50,
                'm2 only': 7}
     assert res['sums'] == expsums
 
-    expre = {'m1': 0.0006107912873268022, 'm2': 0.0015726673303611363}
+    expre = {'m1': 0.000519601606394499, 'm2': 0.001345136868890432}
     for k, v in expre.items():
         assert abs(res['relative errors'][k] - v) < 1e-5

@@ -9,7 +9,7 @@ def test_make_fvecs(fvecfn, fakedata):
     fvnii = nib.load(fvecfn)
     assert (fvnii.affine == fakedata.aff).all()
     assert np.linalg.norm(fvnii.dataobj[40, 45, 35] -
-                          [-0.00191109, 0.0, -0.68160387, -0.68159452, 1.0]) < 0.01
+                          [-2.11442034, -1.91812569, -1.64265231, -1.45012367, 1.0]) < 0.01
 
     # In python 3 get_content() returns a bytes object. str() doesn't work as
     # wanted (it prepends a b and escapes the \t and \n), so it needs to be
