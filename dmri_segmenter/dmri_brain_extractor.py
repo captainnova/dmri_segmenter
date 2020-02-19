@@ -22,6 +22,7 @@ except ImportError:
 import socket
 import subprocess
 import sys
+import warnings
 
 try:
     from . import brine
@@ -75,17 +76,25 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
         filename = "dmri_brain_extractor.py"
     vinfo = filename + " version: " + __version__ + "\n"
 
+    # Aargh, apparently we have to be in the git directory tree, or at least
+    # its filesystem, for git log to work.
+    startdir = os.path.abspath(os.curdir)
     try:
+        gitdir = os.path.dirname(filename)
+        os.chdir(gitdir)
         repo_info = get_subprocess_output(repo_info_cmd + " " + filename)
         if repo_info:
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
             vinfo += "The most recent dmri_segmenter commit was:\n"
             vinfo += repo_info
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
-    except Exception:
+    except Exception as e:
         # I don't think it's really worth worrying anyone if they installed
         # this outside of a repository.
-        pass
+        warnings.warn("Trying to get the repository info for %s failed with:\n\t%s\n"
+                      % (filename, e), RuntimeWarning)
+    finally:
+        os.chdir(startdir)
     return vinfo
 
 
