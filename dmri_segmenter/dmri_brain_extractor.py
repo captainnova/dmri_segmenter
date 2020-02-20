@@ -30,7 +30,7 @@ try:
     from . import utils
 except Exception:
     import brine
-    import FLAIRity
+    from FLAIRITY import FLAIRity
     import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
@@ -127,7 +127,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     data: array-like
         The 4D data.
     ecnii: array-like
-        The opened nii instance of the data (data = ecnii.get_data())
+        The opened nii instance of the data (data = ecnii.get_fdata())
     brfn: string
         Filename for the brain mask.  If blank, no file will be
         written.
@@ -192,7 +192,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     #         return None
 
     if data is None:
-        data = ecnii.get_data()
+        data = ecnii.get_fdata()
     if len(data.shape) != 4:
         raise ValueError("the input must be 4 dimensional")
 
@@ -741,7 +741,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         # Update probs with t1wtiv blurred along the phase encoding direction.
         posterity += "\nUsing %s.\n" % t1wtiv
         t1sigma = fwhm_to_voxel_sigma(t1fwhm, aff)
-        t1tiv = ndi.filters.gaussian_filter(nib.load(t1wtiv).get_data().astype(np.float),
+        t1tiv = ndi.filters.gaussian_filter(nib.load(t1wtiv).get_fdata().astype(np.float),
                                             sigma=t1sigma, mode='nearest')
         probs[..., 0] *= 1 - t1tiv
         for t in range(1, 4):
@@ -1046,7 +1046,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
 
     if isinstance(fvecs, six.string_types):
         fvnii = nib.load(fvecs)
-        fvecs = fvnii.get_data()
+        fvecs = fvnii.get_fdata()
         for ext in fvnii.header.extensions:
             posterity += str(ext)
     else:
