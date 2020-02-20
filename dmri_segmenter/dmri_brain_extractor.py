@@ -25,13 +25,13 @@ import sys
 import warnings
 
 try:
-    import brine
-    from FLAIRITY import FLAIRity
-    import utils
-except Exception:
     from . import brine
     from .FLAIRity import FLAIRity
     from . import utils
+except Exception:                         # I'm not sure this ever gets used anymore.
+    import brine
+    from FLAIRITY import FLAIRity
+    import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
