@@ -1029,7 +1029,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
             except Exception:
                 raise ValueError("Could not find %s" % clffn)
         clf = brine.debrine(clffn)
-        posterity += "Classifier loaded from %s.\n" % clffn
+        posterity += "Classifier loaded from %s.\n" % os.path.abspath(clffn)
     if '3rd stage' in clf:
         nstages = 3
     else:
