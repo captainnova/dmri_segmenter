@@ -8,6 +8,10 @@ from future import standard_library
 standard_library.install_aliases()
 import pickle                              # noqa E402
 
+# Needed here (strange, I know) to allow calling modules to optionally suppress
+# warnings from objects as they are unpickled.
+import warnings                     # noqa
+
 
 def brine(obj, filename, protocol=-1):
     "pickle.dump(obj) into filename."
