@@ -59,7 +59,7 @@ import sys
 pkgdir = os.path.dirname(os.path.dirname(__file__))
 if os.path.isdir(os.path.join(pkgdir, 'dmri_segmenter')):
     sys.path.insert(0, pkgdir)
-    
+
 from dmri_segmenter.dmri_brain_extractor import get_dmri_brain_and_tiv
 from dmri_segmenter.dmri_phantom_extractor import make_phantom_mask
 
@@ -68,7 +68,7 @@ args = docopt(__doc__, version='1.1.0')
 
 try:
     ecnii = nib.load(args['<ecfn>'])
-    bvals, junk = read_bvals_bvecs(args['<bvals>'], None)
+    bvals, _ = read_bvals_bvecs(args['<bvals>'], None)
 
     if args.get('--phantom'):
         mask = make_phantom_mask(ecnii, bvals)
@@ -78,7 +78,7 @@ try:
             dilation = float(args['--dil'])
             if not dilation > 0:
                 dilation = False
-        except:  # Not a number
+        except Exception:  # Not a number
             if args['--dil'][0].lower() in 'ty':
                 dilation = True
             else:
@@ -88,10 +88,10 @@ try:
         if args['--isFL'] is not None:
             try:
                 isFLAIR = bool(int(args['--isFL']))
-            except:
+            except Exception:
                 raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
 
-        brain, tiv = get_dmri_brain_and_tiv(ecnii.get_data(), ecnii, brfn=args.get('--brfn'),
+        brain, tiv = get_dmri_brain_and_tiv(ecnii.get_fdata(), ecnii, brfn=args.get('--brfn'),
                                             tivfn=args['<tivfn>'], bvals=bvals,
                                             medrad=float(args['--mr']), nmed=int(args['--nmed']),
                                             verbose=args['--verbose'], dilate=dilation,
@@ -102,7 +102,7 @@ except Exception as e:
     if args['--verbose']:
         # Print the traceback
         import traceback
-        
+
         traceback.print_exception(*(sys.exc_info()))
     else:
         # Don't print the traceback, because it tends to distract novices from
@@ -111,4 +111,3 @@ except Exception as e:
     sys.exit(1)
 
 sys.exit(0)
-                                
