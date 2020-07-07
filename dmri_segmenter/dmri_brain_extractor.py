@@ -15,6 +15,7 @@ try:
     from skimage.filter import threshold_otsu as otsu
 except ImportError:
     from dipy.segment.threshold import otsu
+from skimage.segmentation import morphological_geodesic_active_contour
 try:
     import six
 except ImportError:
@@ -366,6 +367,9 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
         and be ridiculously and pointlessly large.  Since they can easily exceed
         the data range supported by fslview, it is best to clip them at +- some
         value well away from 1.  Set to None if you really do not want to clamp.
+    regscale: float
+        Avoid division by 0 by adding this * median(brain brightness) to the signal
+        in quadrature.
 
     Output
     ------
@@ -401,6 +405,94 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     if clamp is not None:
         madje = np.clip(madje, -clamp, clamp, madje)
     return madje, brightness_scale
+
+
+def grad_based_tiv_from_pd(pd, aff, sigma, norm, compscale, ball, relthresh=0.5,
+                           ncomponents=1, is_phantom=False):
+    # Use mode='constant' (with implied cval=0) so that the TIV is capped.
+    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
+
+    thresh = relthresh * otsu(grad)
+    gradmask = np.zeros(pd.shape, dtype=np.uint8)
+    gradmask[grad > thresh] = 1
+
+    fgmask, _ = utils.fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
+    if is_phantom:
+        # Remove the "outside" part of gradmask.
+        fgmask = utils.binary_erosion(fgmask, ball)
+    else:
+        # We need to remove the eyeballs, so remove all of gradmask.
+        fgmask[gradmask > 0] = 0
+    fgmask = utils.binary_opening(fgmask, ball)
+    utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents,
+                                         weight=pd)
+    fgmask = utils.binary_dilation(fgmask, ball)
+    fgmask = utils.binary_closing(fgmask, ball)
+    fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)
+
+    return fgmask, grad
+
+
+def mgac_improve_mask(mask, grad, pd, aff, voxscale, thresh=None, npedvox=3, pedax=1,
+                      niters=10, balloon=0, alpha=100.0):
+    """
+    Improve mask using geodesic active contours implemented with morphological
+    operators. It can be used to segment objects with visible but noisy,
+    cluttered, broken borders.
+
+    Parameters
+    ----------
+    mask: 3D array
+        A reasonably good approximation of the wanted mask.
+    grad: 3D array
+        |grad(pd)|
+    pd: 3D array
+        Grayscale image to be masked
+    aff: 4x4 array
+        Affine transform from voxel to world coordinates.
+    voxscale: float
+        The largest extent of a voxel, in aff's units (e.g. mm).
+    thresh: None or float
+        Voxels brighter than this in pd and neighboring the intermediate mask
+        will be included. If None, median(pd[mask > 0]) will be used.
+    npedvox: int
+        Expected thickness of pileup regions, in voxels.
+    pedax: int
+        Axis of the phase encoding direction; 0: x, 1: y, 2: z.
+    niters: int
+        Number of morphological_geodesic_active_contour iterations to use.
+    balloon: float
+        Balloon force to guide the contour in non-informative areas of the
+        image, i.e., areas where the gradient of the image is too small to push
+        the contour towards a border. A negative value will shrink the contour,
+        while a positive value will expand the contour in these areas. Setting
+        this to zero will disable the balloon force.
+    alpha: float
+        Controls how deep the troughs of 1.0 / np.sqrt(1.0 + alpha * grad) are,
+        with higher values making it nominally more sensitive to grad.
+
+    Returns
+    -------
+    mgac: 3D array
+        mask after improving it with morphological_geodesic_active_contour(),
+        inclusion of neighboring signal pileups, and hole filling.
+    """
+    gimage = 1.0 / np.sqrt(1.0 + alpha * grad)
+    mgac = morphological_geodesic_active_contour(gimage, niters, init_level_set=mask, balloon=balloon)
+
+    # mgac might exclude regions of signal pileup near the edge. Add bright
+    # regions that could be EPI distorted parts of the TIV.
+    pedshape = [1, 1, 1]
+    pedshape[pedax] = 1 + npedvox
+    pedline = np.ones(pedshape)
+    dmgac = utils.binary_dilation(mgac, pedline)
+    if thresh is None:
+        thresh = np.median(pd[mgac > 0])
+    dmgac[pd < thresh] = 0
+    dmgac[mgac > 0] = 1
+    dmgac = utils.remove_disconnected_components(dmgac)
+    dmgac, _ = utils.fill_holes(dmgac, aff, 2 * voxscale)
+    return dmgac
 
 
 def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
@@ -439,35 +531,24 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     # dilution, so some stretching is needed for them.
     maxscale = max(voxdims)
     compscale = np.sqrt(0.5 * (dr**2 + maxscale**2))
+    ball = utils.make_structural_sphere(aff, 2.0 * compscale)
     sigma = compscale / voxdims
 
     norm = ndi.gaussian_filter(pd, sigma, mode='nearest')
     intensity_scale = np.std(pd)
     norm = np.sqrt(norm**2 + (softener * intensity_scale)**2)
 
-    # Use mode='constant' (with implied cval=0) so that the TIV is capped.
-    grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
+    fgmask, grad = grad_based_tiv_from_pd(pd, aff, sigma, norm, compscale, ball,
+                                          relthresh, ncomponents, is_phantom)
 
-    thresh = relthresh * otsu(grad)
-    gradmask = np.zeros(s0.shape, dtype=np.uint8)
-    gradmask[grad > thresh] = 1
+    # Signal pileup from EPI distortion should not count against the TIV, so clamp it
+    # using the estimate so far of normal brain PD.
+    med_in_mask = np.median(pd[fgmask > 0])
+    np.clip(pd, 0, med_in_mask, pd)
+    fgmask, grad = grad_based_tiv_from_pd(pd, aff, sigma, norm, compscale, ball,
+                                          relthresh, ncomponents, is_phantom)
 
-    fgmask, _ = utils.fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
-    ball = utils.make_structural_sphere(aff, 2.0 * compscale)
-    if is_phantom:
-        # Remove the "outside" part of gradmask.
-        fgmask = utils.binary_erosion(fgmask, ball)
-    else:
-        # We need to remove the eyeballs, so remove all of gradmask.
-        fgmask[gradmask > 0] = 0
-    fgmask = utils.binary_opening(fgmask, ball)
-    utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents,
-                                         weight=pd)
-    fgmask = utils.binary_dilation(fgmask, ball)
-    fgmask = utils.binary_closing(fgmask, ball)
-    fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)
-
-    return fgmask
+    return mgac_improve_mask(fgmask, grad, pd, aff, maxscale, med_in_mask)
 
 
 def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=None,
