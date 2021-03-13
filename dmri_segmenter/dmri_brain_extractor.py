@@ -30,7 +30,7 @@ try:
     from . import utils
 except Exception:                         # I'm not sure this ever gets used anymore.
     import brine
-    from FLAIRITY import FLAIRity
+    from FLAIRity import FLAIRity
     import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
