@@ -22,8 +22,8 @@ Options:
   -c CR --cr=CR           Closing radius relative to the maximum voxel size
                           with which to close the mask before filling holes.
                           [default: 3.7]
-  -d D --dil=D            Controls dilation.  
-                          **N.B.: it only affects FLAIR DTI!** 
+  -d D --dil=D            Controls dilation.
+                          **N.B.: it only affects FLAIR DTI!**
                           If a positive number, it will be used as the radius,
                           relative to the maximum voxel size, to dilate with.
                           If a nonnegative number, no dilation will be done.
@@ -60,8 +60,8 @@ pkgdir = os.path.dirname(os.path.dirname(__file__))
 if os.path.isdir(os.path.join(pkgdir, 'dmri_segmenter')):
     sys.path.insert(0, pkgdir)
 
-from dmri_segmenter.dmri_brain_extractor import get_dmri_brain_and_tiv
-from dmri_segmenter.dmri_phantom_extractor import make_phantom_mask
+from dmri_segmenter.dmri_brain_extractor import get_dmri_brain_and_tiv  # noqa: E402
+from dmri_segmenter.dmri_phantom_extractor import make_phantom_mask  # noqa: E402
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
 args = docopt(__doc__, version='1.1.0')
@@ -76,7 +76,7 @@ try:
     else:
         try:
             dilation = float(args['--dil'])
-            if not dilation > 0:
+            if dilation <= 0:
                 dilation = False
         except Exception:  # Not a number
             if args['--dil'][0].lower() in 'ty':
