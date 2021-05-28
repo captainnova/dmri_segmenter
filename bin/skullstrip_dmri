@@ -6,7 +6,7 @@
 Make a brain mask for diffusion MRI (dMRI) data.
 
 Usage:
-  skullstrip_dmri [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
+  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] <ecfn> <bvals> <tivfn>
   skullstrip_dmri [--verbose=VE] -p <ecfn> <bvals> <tivfn>
   skullstrip_dmri (-h|--help|--version)
 
@@ -16,9 +16,19 @@ Arguments:
            space separated row.
   tivfn:   Filename for a TIV-style type output nii.
 
-Options:
+Common Options:
   -h --help               Show this message and exit.
   --version               Show version and exit.
+  -i FL --isFL=FL         Save some time but specifying whether it is (1) or
+                          is not (0) a FLAIR diffusion scan. It defaults to
+                          trying to find that from the InversionTime (if
+                          available) and/or the CSF to tissue brightness ratio.
+  -p --phantom            Use for phantoms.
+  -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
+  --verbose=VE            Be chatty.
+                          [default: 1] (True)
+
+Options intended for animal dMRI:
   -c CR --cr=CR           Closing radius relative to the maximum voxel size
                           with which to close the mask before filling holes.
                           [default: 3.7]
@@ -30,22 +40,14 @@ Options:
                           If y or t (case insensitive), mr * nmed will be
                           used.
                           [default: 0.5]
-  -i FL --isFL=FL         Specify whether it is (1) or is not (0) a FLAIR
-                          diffusion scan.  It defaults to trying to find that
-                          from the InversionTime (if available) and the CSF
-                          to tissue brightness ratio.
   -m MR --mr=MR           Radius of the median filter relative to the largest
                           voxel size.
                           [default: 1]
   -n NM --nmed=NM         Number of times to run the median filter
                           [default: 2]
-  -p --phantom            Use for phantoms.
   -s SVC --svc=SVC        Pickle or joblib dump file holding the classifier
                           parameters. (Not used for FLAIR.)
                           [default: RFC_classifier.pickle]
-  -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
-  --verbose=VE            Be chatty.
-                          [default: 1] (True)
   -w --whiskers           If given, do NOT try harder to trim whiskers.
 """
 from __future__ import print_function
@@ -64,26 +66,49 @@ from dmri_segmenter.dmri_brain_extractor import get_dmri_brain_and_tiv  # noqa: 
 from dmri_segmenter.dmri_phantom_extractor import make_phantom_mask  # noqa: E402
 
 # Please use semantic versioning (API.feature.bugfix), http://semver.org/
-args = docopt(__doc__, version='1.1.0')
+args = docopt(__doc__, version='1.2.0')
 
+
+def handle_error(e, verbose):
+    if verbose:
+        # Print the traceback
+        import traceback
+
+        traceback.print_exception(*(sys.exc_info()))
+    else:
+        # Don't print the traceback, because it tends to distract novices from
+        # the error message you want them to read.
+        print(e, file=sys.stderr)
+    return 1
+
+
+def _handle_dilation(args):
+    try:
+        dilation = float(args['--dil'])
+        if dilation <= 0:
+            dilation = False
+    except Exception:  # Not a number
+        if args['--dil'][0].lower() in 'ty':
+            dilation = True
+        else:
+            dilation = False
+    return dilation
+
+
+ev = 0
 try:
     ecnii = nib.load(args['<ecfn>'])
     bvals, _ = read_bvals_bvecs(args['<bvals>'], None)
+except Exception as e:
+    print("There was a problem loading the data:")
+    ev = handle_error(e, args['--verbose'])
 
+try:
     if args.get('--phantom'):
         mask = make_phantom_mask(ecnii, bvals)
         nib.save(nib.Nifti1Image(mask, ecnii.affine), args['<tivfn>'])
     else:
-        try:
-            dilation = float(args['--dil'])
-            if dilation <= 0:
-                dilation = False
-        except Exception:  # Not a number
-            if args['--dil'][0].lower() in 'ty':
-                dilation = True
-            else:
-                dilation = False
-
+        dilation = _handle_dilation(args)
         isFLAIR = None
         if args['--isFL'] is not None:
             try:
@@ -99,15 +124,6 @@ try:
                                             svc=args['--svc'],
                                             trim_whiskers=not args.get('--whiskers'))
 except Exception as e:
-    if args['--verbose']:
-        # Print the traceback
-        import traceback
+    ev = handle_error(e, args['--verbose'])
 
-        traceback.print_exception(*(sys.exc_info()))
-    else:
-        # Don't print the traceback, because it tends to distract novices from
-        # the error message you want them to read.
-        print(e, file=sys.stderr)
-    sys.exit(1)
-
-sys.exit(0)
+sys.exit(ev)
