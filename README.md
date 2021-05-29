@@ -52,10 +52,9 @@ All but the first two can be installed with pip(env).
 - 1.1.0 released 2019-07-28 (1st release on github, after > 1 year of in-house use.)
 
 ## Skull Stripping
-Don't worry - you probably won't need the options!
 ```
 Usage:
-  skullstrip_dmri [-c=CR -d=D -i=FL -m=MR -n=NM -t=BRFN --verbose=VE -s=SVC -w] <ecfn> <bvals> <tivfn>
+  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] <ecfn> <bvals> <tivfn>
   skullstrip_dmri [--verbose=VE] -p <ecfn> <bvals> <tivfn>
   skullstrip_dmri (-h|--help|--version)
 
@@ -65,40 +64,51 @@ Arguments:
            space separated row.
   tivfn:   Filename for a TIV-style type output nii.
 
-Options:
+Common Options:
   -h --help               Show this message and exit.
   --version               Show version and exit.
+  -i FL --isFL=FL         Save some time but specifying whether it is (1) or
+                          is not (0) a FLAIR diffusion scan. It defaults to
+                          trying to find that from the InversionTime (if
+                          available) and/or the CSF to tissue brightness ratio.
+  -p --phantom            Use for phantoms.
+  -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
+  --verbose=VE            Be chatty.
+                          [default: 1] (True)
+
+Options intended for animal dMRI:
   -c CR --cr=CR           Closing radius relative to the maximum voxel size
                           with which to close the mask before filling holes.
                           [default: 3.7]
   -d D --dil=D            Controls dilation.
-                          **N.B.: it only affects FLAIR DTI!** 
+                          **N.B.: it only affects FLAIR DTI!**
                           If a positive number, it will be used as the radius,
                           relative to the maximum voxel size, to dilate with.
                           If a nonnegative number, no dilation will be done.
                           If y or t (case insensitive), mr * nmed will be
                           used.
                           [default: 0.5]
-  -i FL --isFL=FL         Specify whether it is (1) or is not (0) a FLAIR
-                          diffusion scan.  It defaults to trying to find that
-                          from the InversionTime (if available) and the CSF
-                          to tissue brightness ratio.
   -m MR --mr=MR           Radius of the median filter relative to the largest
                           voxel size.
                           [default: 1]
   -n NM --nmed=NM         Number of times to run the median filter
                           [default: 2]
-  -p --phantom            Use for phantoms.
   -s SVC --svc=SVC        Pickle or joblib dump file holding the classifier
                           parameters. (Not used for FLAIR.)
                           [default: RFC_classifier.pickle]
-  -t BRFN --brfn=BRFN     If given, also write a tighter brain mask to BRFN.
-  --verbose=VE            Be chatty.
-                          [default: 1] (True)
-  -w --whiskers           If given, do NOT make an extra effort to trim whiskers.
+  -w --whiskers           If given, do NOT try harder to trim whiskers.
 ```
 
 ## Segmenting
+dmri\_segmenter is primarily intended for skull stripping, but it works by
+classifying voxels as air, scalp/face, eyeball, CSF, brain tissue, or
+intracranial "other" (e.g. tentorium). Thus, you can get it to segment using
+either dmri\_segment or skullstrip\_dmri -b. Just be aware that the sum of CSF,
+tissue, and other tends to be more accurate than the individual
+components. Both dmri\_segment and skullstrip\_dmri, support working from raw
+data (otherwise there would be a chicken and egg problem), so they avoid
+certain kinds of calculations that a segmenter designed to work with processed
+data might use.
 
 ## Training the Classifier
 
