@@ -6,15 +6,15 @@
 Make a brain mask for diffusion MRI (dMRI) data.
 
 Usage:
-  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] <ecfn> <bvals> <tivfn>
-  skullstrip_dmri [--verbose=VE] -p <ecfn> <bvals> <tivfn>
+  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] DATA BVALFN OUTFN
+  skullstrip_dmri [--verbose=VE] -p DATA BVALFN OUTFN
   skullstrip_dmri (-h|--help|--version)
 
 Arguments:
-  ecfn:    Filename of an eddy corrected 4D dMRI nii.
-  bvals:   Name of an ASCII file holding the diffusion strengths in a single
+  DATA:    Filename of a 4D dMRI nii, ideally but not necessarily eddy corrected
+  BVALFN:  Name of an ASCII file holding the diffusion strengths in a single
            space separated row.
-  tivfn:   Filename for a TIV-style type output nii.
+  OUTFN:   Filename for the TIV (or equivalent) output nii.
 
 Common Options:
   -h --help               Show this message and exit.
@@ -97,8 +97,8 @@ def _handle_dilation(args):
 
 ev = 0
 try:
-    ecnii = nib.load(args['<ecfn>'])
-    bvals, _ = read_bvals_bvecs(args['<bvals>'], None)
+    ecnii = nib.load(args['DATA'])
+    bvals, _ = read_bvals_bvecs(args['BVALFN'], None)
 except Exception as e:
     print("There was a problem loading the data:")
     ev = handle_error(e, args['--verbose'])
@@ -106,7 +106,7 @@ except Exception as e:
 try:
     if args.get('--phantom'):
         mask = make_phantom_mask(ecnii, bvals)
-        nib.save(nib.Nifti1Image(mask, ecnii.affine), args['<tivfn>'])
+        nib.save(nib.Nifti1Image(mask, ecnii.affine), args['OUTFN'])
     else:
         dilation = _handle_dilation(args)
         isFLAIR = None
@@ -117,7 +117,7 @@ try:
                 raise ValueError('Use 0 (False) or 1 (True) when using the --isFL option')
 
         brain, tiv = get_dmri_brain_and_tiv(ecnii.get_fdata(), ecnii, brfn=args.get('--brfn'),
-                                            tivfn=args['<tivfn>'], bvals=bvals,
+                                            tivfn=args['OUTFN'], bvals=bvals,
                                             medrad=float(args['--mr']), nmed=int(args['--nmed']),
                                             verbose=args['--verbose'], dilate=dilation,
                                             closerad=float(args['--cr']), isFLAIR=isFLAIR,

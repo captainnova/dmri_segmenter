@@ -54,15 +54,15 @@ All but the first two can be installed with pip(env).
 ## Skull Stripping
 ```
 Usage:
-  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] <ecfn> <bvals> <tivfn>
-  skullstrip_dmri [--verbose=VE] -p <ecfn> <bvals> <tivfn>
+  skullstrip_dmri [-i=FL -t=BRFN --verbose=VE] [-c=CR -d=D -m=MR -n=NM -s=SVC -w] DATA BVALFN OUTFN
+  skullstrip_dmri [--verbose=VE] -p DATA BVALFN OUTFN
   skullstrip_dmri (-h|--help|--version)
 
 Arguments:
-  ecfn:    Filename of an eddy corrected 4D dMRI nii.
-  bvals:   Name of an ASCII file holding the diffusion strengths in a single
+  DATA:    Filename of a 4D dMRI nii, ideally but not necessarily eddy corrected
+  BVALFN:  Name of an ASCII file holding the diffusion strengths in a single
            space separated row.
-  tivfn:   Filename for a TIV-style type output nii.
+  OUTFN:   Filename for the TIV (or equivalent) output nii.
 
 Common Options:
   -h --help               Show this message and exit.
