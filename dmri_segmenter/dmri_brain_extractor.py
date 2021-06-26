@@ -26,18 +26,18 @@ import sys
 import warnings
 
 try:
-    from . import brine
+    from .classifier_io import load_classifier
     from .FLAIRity import FLAIRity
     from . import utils
 except Exception:                         # I'm not sure this ever gets used anymore.
-    import brine
+    from classifier_io import load_classifier
     from FLAIRity import FLAIRity
     import utils
 
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.3.3 20200218"
+__version__ = "1.4.3 20210626"
 
 
 def get_subprocess_output(cmd, encoding='utf-8'):
@@ -1041,8 +1041,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         The (classifier, which must have been already trained to segment air,
         brain, CSF, and other tissue as 0, 1, 2, and 3 from
         make_feature_vectors(same parameters).
-        If a str, brine.debrine(clf) will be used, looking in . or the same
-        directory as this file if necessary.
+        If a str, load_classifier(clf) will be used.
     relbthresh: float
         The cutpoint between b0s and DWIs, as a fraction of max(bvals).
         Only used if s0 is None.
@@ -1101,16 +1100,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     posterity = ''
 
     # Hurl early if we can't get a classifier.
-    clffn = None
-    if isinstance(clf, six.string_types):
-        clffn = clf
-        if not os.path.isfile(clffn):
-            try:
-                clffn = os.path.join(os.path.dirname(__file__), clffn)
-            except Exception:
-                raise ValueError("Could not find %s" % clffn)
-        clf = brine.debrine(clffn)
-        posterity += "Classifier loaded from %s.\n" % os.path.abspath(clffn)
+    clf, posterity = load_classifier(clf)
     if '3rd stage' in clf:
         nstages = 3
     else:
@@ -1118,7 +1108,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
     posterity += "The classifier is a %d stage random forest.\n" % nstages
     posterity += clf['log'] + "\n"
     if not hasattr(clf['1st stage'], 'predict'):
-        raise ValueError(clffn + " does not contain a valid classifier")
+        raise ValueError("The classifier is invalid")
     if hasattr(clf['1st stage'], 'intercept_'):
         posterity += "Using support vector classifier:\n%s\n\n" % clf['1st stage']
         posterity += "Classifier intercept:         %s\n" % clf['1st stage'].intercept_
