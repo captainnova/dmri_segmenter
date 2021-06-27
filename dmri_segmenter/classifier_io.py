@@ -1,8 +1,10 @@
 from __future__ import absolute_import
 from dipy.utils.optpkg import optional_package
+import numpy as np
 import os
 
 onnxruntime, have_onnxruntime, setup_module = optional_package('onnxruntime')
+skl2onnx, have_skl2onnx, setup_module = optional_package('skl2onnx')
 
 try:
     from . import brine
@@ -43,6 +45,28 @@ def find_thing_in_path(thing, path):
     return found
 
 
+class OnnxAsSkl(onnxruntime.InferenceSession):
+    """Wraps onnxruntime.InferenceSession so it has a .predict_proba() like
+    sklearn's RandomForestClassifier.
+    """
+    def predict_proba(self, X, probability_label='output_probability',
+                      xtype=np.float32):
+        input_name = self.get_inputs()[0].name
+
+        # AFAICT self.run's output is a list with only 1 element: a list of dicts.
+        # It's run_options option does not look very useful, and the documentation
+        # is very sparse.
+        lod = self.run([probability_label], {input_name: X.astype(xtype)})[0]
+
+        # Assumes all the dicts have the same keys, but they have to, meaning onnx
+        # is oddly inefficient.
+        if lod:
+            classes = sorted(lod[0].keys())
+        else:
+            classes = []
+        return np.array([[d[k] for k in classes] for d in lod])
+
+
 def load_classifier(src, srcpath=['.', '~/.dipy/dmri_segmenter/classifiers']):
     """
     Load a classifier dict from src
@@ -79,12 +103,50 @@ def load_classifier(src, srcpath=['.', '~/.dipy/dmri_segmenter/classifiers']):
         posterity = "Classifier loaded from %s.\n" % os.path.abspath(loadfrom)
         if os.path.isdir(loadfrom):
             if have_onnxruntime:
-                pass  # TODO
+                clf = brine.debrine(os.path.join(loadfrom, 'dict.pickle'))
+                stages = [k for k in clf if isinstance(k, str) and k.endswith('stage')]
+                for s in stages:
+                    clf[s] = OnnxAsSkl(os.path.join(loadfrom, clf[s]))
             else:
                 raise ValueError("onnxruntime must be installed to use a multifile classifier")
         else:
             clf = brine.debrine(loadfrom)
     return clf, posterity
+
+
+def save_clf_dict_to_onnx(clfd, outdir, desc='', target_opset=12):
+    """Save a classifier dict to a directory with the weights in ONNX format.
+
+    Parameters
+    ----------
+    clfd : dict
+        Top level classifier directory, including '1st stage', '2nd stage',
+        etc. sklearn classifiers as keys/values.
+    outdir : str
+        The directory to save clfd as. Will be created or overwritten.
+    desc : str, optional
+        A descriptive comment that will be saved in the output.
+    target_opset : int, optional
+        The minimum version of onnx's operations set to aim for.
+    """
+    if not os.path.exists(outdir):
+        os.makedirs(outdir)
+    stages = sorted([k for k in clfd if isinstance(k, str) and k.endswith('stage')])
+    if not stages:
+        raise ValueError("The classifier dict must have some keys ending in 'stage'")
+    nfeatures = clfd['n_features']
+    input_type = [('nx%d_input' % nfeatures,
+                   skl2onnx.common.data_types.FloatTensorType([None, nfeatures]))]
+    myd = {k: v for k, v in clfd.items() if k not in stages}
+    if desc:
+        myd['Description'] = desc
+    for i, s in enumerate(stages):
+        myd[s] = "%d.onnx" % i
+        onx = skl2onnx.convert_sklearn(clfd[s], initial_types=input_type,
+                                       target_opset=target_opset)
+        with open(os.path.join(outdir, myd[s]), 'wb') as f:
+            f.write(onx.SerializeToString())
+    brine.brine(myd, os.path.join(outdir, 'dict.pickle'))
 
 
 def fetch_classifier(ctype=None, training_set='RFC_ADNI6',
