@@ -29,13 +29,17 @@ tends to suffer from large distorted voxels we expect that most users will use
 a 3D acquisition (e.g. T1w and/or FLAIR) for a more precise measure of the
 brain volume.
 
+## Note
+You probably do NOT need to train your own classifier, or worry about most of
+skullstrip\_dmri's options, unless you are stripping unusual brains (e.g. phantoms).
+
 ## License
 Licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 
 ## Dependencies
 All but the first two can be installed with pip(env).
 - POSIX? (not yet tested with Windows)
-- python 2.6+, or python 3(.6+?)
+- python 2.7, or python 3.6+
 - dipy
   - Dependencies:
     - nibabel
@@ -46,6 +50,9 @@ All but the first two can be installed with pip(env).
 - future (for python 2/3 compatibility)
 - scikit-image
 - scikit-learn
+- if using scikit-learn > 0.23.2: onnxruntime
+- optional (needed for saving trained classifiers in onnx format, not for day-to-day
+  use): skl2onnx
 
 ## Versions
 - 1.2.0 released 2019-09-29 (adds python 3 compatibility)
@@ -110,7 +117,20 @@ data (otherwise there would be a chicken and egg problem), so they avoid
 certain kinds of calculations that a segmenter designed to work with processed
 data might use.
 
-## Training the Classifier
+## Do I really need all those classifiers?
+Probably not. The ones included here so far are the same data in different
+formats, as needed by different python environments.
+
+| Python environment                         | Matching Classifier      |
+|--------------------------------------------|--------------------------|
+| 2                                          | RFC\_ADNI6\_py27.pickle  |
+| 3, with onnxruntime                        | RFC\_ADNI6\_onnx         |
+| 3, with sklearn < 0.24 and no onnxruntime  | RFC\ADNI6\_sk0p23.pickle |
+| 3, with sklearn >= 0.24 and no onnxruntime | RFC\ADNI6\_sk0p24.pickle |
+
+skullstrip\_dmri will attempt to load the correct one by default.
+
+## Training your own Classifier
 
 dmri\_segmenter includes a classifier which was already trained with scans from
 older adults, but you might want to train a classifier with your own data.
