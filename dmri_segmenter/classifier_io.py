@@ -45,10 +45,37 @@ def find_thing_in_path(thing, path):
     return found
 
 
-class OnnxAsSkl(onnxruntime.InferenceSession):
-    """Wraps onnxruntime.InferenceSession so it has a .predict_proba() like
-    sklearn's RandomForestClassifier.
+if have_onnxruntime:
+    from onnxruntime import InferenceSession
+else:
+    InferenceSession = object
+
+
+class OnnxAsSkl(InferenceSession):
+    """Wraps onnxruntime.InferenceSession so it has classes_ and predict_proba()
+    members like sklearn's RandomForestClassifier.
     """
+    @property
+    def classes_(self):
+        "Labels for the classes"
+        if hasattr(self, '_classes_'):
+            return self._classes_
+        else:
+            raise ValueError(".classes_ has not been set yet")
+
+    @classes_.setter
+    def classes_(self, val):
+        """
+        Parameters
+        ----------
+        val : sequence
+        """
+        self._classes_ = np.asarray(val)
+
+    @classes_.deleter
+    def classes_(self):
+        del self._classes_
+
     def predict_proba(self, X, probability_label='output_probability',
                       xtype=np.float32):
         input_name = self.get_inputs()[0].name
@@ -61,10 +88,10 @@ class OnnxAsSkl(onnxruntime.InferenceSession):
         # Assumes all the dicts have the same keys, but they have to, meaning onnx
         # is oddly inefficient.
         if lod:
-            classes = sorted(lod[0].keys())
+            self.classes_ = sorted(lod[0].keys())
         else:
-            classes = []
-        return np.array([[d[k] for k in classes] for d in lod])
+            self.classes_ = []
+        return np.array([[d[k] for k in self.classes_] for d in lod])
 
 
 def load_classifier(src, srcpath=['.', '~/.dipy/dmri_segmenter/classifiers']):
@@ -107,6 +134,7 @@ def load_classifier(src, srcpath=['.', '~/.dipy/dmri_segmenter/classifiers']):
                 stages = [k for k in clf if isinstance(k, str) and k.endswith('stage')]
                 for s in stages:
                     clf[s] = OnnxAsSkl(os.path.join(loadfrom, clf[s]))
+                    clf[s].classes_ = clf['classes_'][s]
             else:
                 raise ValueError("onnxruntime must be installed to use a multifile classifier")
         else:
@@ -134,14 +162,19 @@ def save_clf_dict_to_onnx(clfd, outdir, desc='', target_opset=12):
     stages = sorted([k for k in clfd if isinstance(k, str) and k.endswith('stage')])
     if not stages:
         raise ValueError("The classifier dict must have some keys ending in 'stage'")
-    nfeatures = clfd['n_features']
-    input_type = [('nx%d_input' % nfeatures,
-                   skl2onnx.common.data_types.FloatTensorType([None, nfeatures]))]
     myd = {k: v for k, v in clfd.items() if k not in stages}
+    myd['classes_'] = {}
+    myd['n_features_'] = {}
     if desc:
         myd['Description'] = desc
     for i, s in enumerate(stages):
         myd[s] = "%d.onnx" % i
+        clf = clfd[s]
+        nfeatures = clf.n_features_
+        myd['classes_'][s] = clf.classes_
+        myd['n_features_'][s] = nfeatures
+        input_type = [('nx%d_input' % nfeatures,
+                       skl2onnx.common.data_types.FloatTensorType([None, nfeatures]))]
         onx = skl2onnx.convert_sklearn(clfd[s], initial_types=input_type,
                                        target_opset=target_opset)
         with open(os.path.join(outdir, myd[s]), 'wb') as f:

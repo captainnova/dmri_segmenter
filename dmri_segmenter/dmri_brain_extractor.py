@@ -1107,7 +1107,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         nstages = 2
     posterity += "The classifier is a %d stage random forest.\n" % nstages
     posterity += clf['log'] + "\n"
-    if not hasattr(clf['1st stage'], 'predict'):
+    if not (hasattr(clf['1st stage'], 'predict_proba') or hasattr(clf['1st stage'], 'predict')):
         raise ValueError("The classifier is invalid")
     if hasattr(clf['1st stage'], 'intercept_'):
         posterity += "Using support vector classifier:\n%s\n\n" % clf['1st stage']
