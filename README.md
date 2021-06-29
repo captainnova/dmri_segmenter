@@ -125,8 +125,8 @@ formats, as needed by different python environments.
 |--------------------------------------------|--------------------------|
 | 2                                          | RFC\_ADNI6\_py27.pickle  |
 | 3, with onnxruntime                        | RFC\_ADNI6\_onnx         |
-| 3, with sklearn < 0.24 and no onnxruntime  | RFC\ADNI6\_sk0p23.pickle |
-| 3, with sklearn >= 0.24 and no onnxruntime | RFC\ADNI6\_sk0p24.pickle |
+| 3, with sklearn < 0.24 and no onnxruntime  | RFC\_ADNI6\_sk0p23.pickle |
+| 3, with sklearn >= 0.24 and no onnxruntime | RFC\_ADNI6\_sk0p24.pickle |
 
 skullstrip\_dmri will attempt to load the correct one by default.
 
