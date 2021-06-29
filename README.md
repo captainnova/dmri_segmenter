@@ -55,6 +55,8 @@ All but the first two can be installed with pip(env).
   use): skl2onnx
 
 ## Versions
+- 1.3.0 released 2021-06-30 (restores compatibility with recent scikit-learn
+  versions, e.g. 0.24.+)
 - 1.2.0 released 2019-09-29 (adds python 3 compatibility)
 - 1.1.0 released 2019-07-28 (1st release on github, after > 1 year of in-house use.)
 
