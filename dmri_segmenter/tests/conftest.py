@@ -20,20 +20,20 @@ class Phantom(object):
         # Don't make phantom too small; make_phantom_mask, at least with the
         # defaults, does some convolutions with nominal scales.
         phantom = np.zeros((80, 90, 70), dtype=np.uint8)
-        phantom[10:65, 10:70, 2:65] = 1
+        phantom[10:65, 10:70, 2:65] = 2       # CSF rim
+        phantom[13:62, 13:67, 5:62] = 1       # brain
 
         # Make a hole.
         phantom[40:50, 30:50, 30:40] = 0
 
         # Add a disconnected blip.
-        phantom[2:5, 2:5, 66:69] = 1
+        phantom[2:5, 2:5, 66:69] = 2
 
         nvols = 7
         bvals = np.zeros(nvols)
         bvals[1:] = 1000
 
-        s0 = np.zeros(phantom.shape)
-        s0[phantom > 0] = 100.0
+        s0 = 50.0 * phantom
 
         # Give it some shading and striping, and shift and soften the edge, to both
         # make it more realistic and prevent otsu() from going haywire.
@@ -49,7 +49,9 @@ class Phantom(object):
 
         data = np.zeros(s0.shape + (nvols,))
         for v, b in enumerate(bvals):
-            data[..., v] = np.exp(-0.0021 * b) * s0
+            data[..., v] = s0
+            data[10:65, 10:70, 2:65, v] *= np.exp(-0.003 * b)
+            data[13:62, 13:67, 5:62, v] *= np.exp(0.0023 * b)  # Back CSF diffusion to brain level
         aff = np.eye(4)
 
         # Make the voxels bigger and anisotropic.

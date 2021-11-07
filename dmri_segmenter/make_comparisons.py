@@ -4,7 +4,7 @@ from __future__ import division
 from builtins import map
 from builtins import str
 from builtins import range
-from past.utils import old_div
+# from past.utils import old_div
 import numpy as np
 import nibabel as nib
 import os
@@ -79,6 +79,19 @@ def make_comparisons(trial='bet', gold_standard='dtb_eddy_T1wTIV_edited', branch
     return outfn
 
 
+def _setup_outfhs(outfns, header):
+    outfhs = {}
+    for trial, outfn in outfns.items():
+        outfhs[trial] = open(outfn, 'w')  # noqa: SIM115
+        outfhs[trial].write(header)
+    return outfhs
+
+
+def _close_outfhs(outfhs):
+    for fh in outfhs.values():
+        fh.close()
+
+
 def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dwi2mask_bc',
                                            'bdp/dtb_eddy_T1wTIV'],
                                    gold_standard='dtb_eddy_T1wTIV_edited',
@@ -86,14 +99,12 @@ def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dw
     """
     Run in crossvalidation/.
     """
-    outfns = {}
-    outfhs = {}
+    outfns = {trial: "all_%s_vs_%s.csv" % (os.path.split(trial)[-1], gold_standard)
+              for trial in trials}
+    outfhs = {}   # Initialize outside the try.
+    header = "Manufacturer,Sequence,Subject,Jaccard Index,Dice Coefficient,Relative Error\n"
     try:
-        for trial in trials:
-            outfns[trial] = "all_%s_vs_%s.csv" % (os.path.split(trial)[-1], gold_standard)
-            outfhs[trial] = open(outfns[trial], 'w')
-            outfhs[trial].write(
-                "Manufacturer,Sequence,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+        outfhs = _setup_outfhs(outfns, header)
         for manuf in ['ge', 'philips', 'siemens']:
             for seq in '01':
                 for subj in '0123':
@@ -105,8 +116,7 @@ def make_all_untrained_comparisons(trials=['bet', 'bet_bc_mask', 'dwi2mask', 'dw
                         relerr, dc, ji = get_re_dc_and_ji(tfn, gold)
                         outfhs[trial].write("%s,%s,%s,%f,%f,%f\n" % (manuf, seq, subj, ji, dc, relerr))
     finally:
-        for outf in outfhs.values():
-            outf.close()
+        _close_outfhs(outfhs)
     return outfns
 
 
@@ -136,7 +146,7 @@ def make_cv_untrained_comparisons(trials=['bet', 'bet_bc_mask',
         for seq in '01':
             for subj in '0123':
                 rownums[manuf, seq, subj] = rownum
-                rownum += 1
+                rownum += 1  # noqa: SIM113
 
     # Precalculate the info that will be in common between the trials.
     indexed_rows = []
@@ -201,14 +211,13 @@ def make_segmentation_comparisons(trial='dtb_eddy_rfcseg',
                                   branch='test', label=''):
     if not label:
         label = trial
-    outfns = {}
+    outfns = {segtype: "%s_vs_%s_%s_in_%s.csv" % (label.replace('/', '_'), gold_standard,
+                                                  segtype.replace(' + ', '_p_'), branch)
+              for segtype in ['brain', 'csf', 'other', 'brain + other', 'tiv']}
     outfhs = {}
     try:
-        for segtype in ['brain', 'csf', 'other', 'brain + other', 'tiv']:
-            outfns[segtype] = "%s_vs_%s_%s_in_%s.csv" % (label.replace('/', '_'), gold_standard,
-                                                         segtype.replace(' + ', '_p_'), branch)
-            outfhs[segtype] = open(outfns[segtype], 'w')
-            outfhs[segtype].write("Manufacturer,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+        outfhs = _setup_outfhs(outfns,
+                               "Manufacturer,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
         for manuf in ['ge', 'philips', 'siemens']:
             for subj in ['0_0', '0_1', '1_0', '1_1']:
                 niidir = os.path.join(branch, manuf, subj)
@@ -219,27 +228,25 @@ def make_segmentation_comparisons(trial='dtb_eddy_rfcseg',
                     outfhs[segtype].write("%s,%s,%f,%f,%f\n" % (manuf, subj, result[0], result[1],
                                                                 result[2]))
     finally:
-        for outf in outfhs.values():
-            outf.close()
+        _close_outfhs(outfhs)
     return outfns
 
 
-def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wTIV_edited_segmentation.nii',
+def make_cv_comparisons(label, testim='seg.nii',
+                        gold_standard_im='dtb_eddy_T1wTIV_edited_segmentation.nii',
                         gold_standard_root='gold_standards', trial_pat=r'[0-9]+'):
     """
     Run in crossvalidation/.
     """
-    outfns = {}
+    outfns = {segtype: "%s/%s_vs_%s.csv" % (label.replace(' ', '_'),
+                                            segtype.replace(' + ', '_p_'),
+                                            gold_standard_im[:-4])
+              for segtype in ['brain', 'csf', 'other', 'brain + other', 'tiv']}
     outfhs = {}
     trial_pat = re.compile(trial_pat)
+    header = "Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n"
     try:
-        for segtype in ['brain', 'csf', 'other', 'brain + other', 'tiv']:
-            outfns[segtype] = "%s/%s_vs_%s.csv" % (label.replace(' ', '_'),
-                                                   segtype.replace(' + ', '_p_'),
-                                                   gold_standard_im[:-4])
-            outfhs[segtype] = open(outfns[segtype], 'w')
-            outfhs[segtype].write(
-                "Manufacturer,Sequence,trial,Subject,Jaccard Index,Dice Coefficient,Relative Error\n")
+        outfhs = _setup_outfhs(outfns, header)
         items = os.listdir(label)
         for trial in items:
             if trial_pat.match(trial):
@@ -258,7 +265,8 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
                                 for segtype, result in results.items():
                                     outfhs[segtype].write("%s,%s,%s,%s,%f,%f,%f\n" % (manuf, seq, trial,
                                                                                       subj, result[0],
-                                                                                      result[1], result[2]))
+                                                                                      result[1],
+                                                                                      result[2]))
                                     if segtype not in trial_stats:
                                         trial_stats[segtype] = []
                                     trial_stats[segtype].append(result)
@@ -268,8 +276,7 @@ def make_cv_comparisons(label, testim='seg.nii', gold_standard_im='dtb_eddy_T1wT
                     outfhs[segtype].write("Average,Both,%s,trial_set,%f,%f,%f\n" % (trial, means[0],
                                                                                     means[1], means[2]))
     finally:
-        for outf in outfhs.values():
-            outf.close()
+        _close_outfhs(outfhs)
     return outfns
 
 
@@ -458,7 +465,7 @@ def setup_gold_standards_for_cross_validation(base='gold_standards'):
                 for subj in '01':
                     os.symlink(os.path.join(root, tt, m, seq + '_' + subj),
                                os.path.join(basemseq, "%s" % i))
-                    i += 1
+                    i += 1  # noqa: SIM113
 
 
 def setup_trials(label, train_manufs, train_seqs, ntrials=10, base='gold_standards',

@@ -51,4 +51,4 @@ def test_get_dmri_brain_and_tiv(fakedata, tmpdir):
                                         fakedata.bvals, isFLAIR=False)
     assert os.path.isfile(brfn)
     assert os.path.isfile(tivfn)
-    assert (tiv[::10, 45, 4] == [0, 0, 1, 1, 1, 1, 1, 0]).all()
+    assert (tiv[::10, 45, 4] == [0, 1, 1, 1, 1, 1, 1, 0]).all()

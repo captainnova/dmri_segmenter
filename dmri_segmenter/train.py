@@ -26,7 +26,7 @@ try:
     # import dmri_segmenter.brine as brine
     # import dmri_segmenter.dmri_brain_extractor as dbe
     # import dmri_segmenter.utils as utils
-except Exception as e:       # I don't think Python 2 has ModuleNotFoundErrors
+except Exception:       # I don't think Python 2 has ModuleNotFoundErrors
     # print("importing error: %s" % e)
     import brine
     import dmri_brain_extractor as dbe
@@ -531,7 +531,7 @@ def train(srclist, label, maxperclass=100000, class_weight="balanced_subsample",
     for k, v in res.items():
         if k != 'log':
             res['log'] += "\t%s:\n\t\t%s\n" % (k, v)
-    res['log'] += "\nTrained %s on %s using sklearn %s.\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    res['log'] += "\nTrained %s on %s using sklearn %s.\n" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),   # noqa: E501
                                                               os.uname()[1], sklearn.__version__)
     with open(logfn, 'w') as lf:
         lf.write(res['log'])
