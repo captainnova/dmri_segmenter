@@ -634,7 +634,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
         gbtiv = make_grad_based_TIV(fvecs[..., 0], fvecs[..., 2], aff)
         sigma = smoothrad / utils.voxel_sizes(aff)
         gbtiv = utils.binary_closing(gbtiv, ball)
-        fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(np.float), sigma, mode='nearest')
+        fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(float), sigma, mode='nearest')
 
     # if nfeatures > 4:
     #     l2amp = sfa.calc_l2_amp(data, bvals, bvecs, s0=s0, nonorm=True)
@@ -822,7 +822,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         # Update probs with t1wtiv blurred along the phase encoding direction.
         posterity += "\nUsing %s.\n" % t1wtiv
         t1sigma = fwhm_to_voxel_sigma(t1fwhm, aff)
-        t1tiv = ndi.filters.gaussian_filter(nib.load(t1wtiv).get_fdata().astype(np.float),
+        t1tiv = ndi.filters.gaussian_filter(nib.load(t1wtiv).get_fdata().astype(float),
                                             sigma=t1sigma, mode='nearest')
         probs[..., 0] *= 1 - t1tiv
         for t in range(1, 4):
