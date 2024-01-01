@@ -467,6 +467,8 @@ def mgac_improve_mask(mask, grad, pd, aff, voxscale, thresh=None, npedvox=3, ped
         the contour towards a border. A negative value will shrink the contour,
         while a positive value will expand the contour in these areas. Setting
         this to zero will disable the balloon force.
+        Attractive as it sounds, it does not have much effect, at least with
+        balloon = 1. I could not find what the scale should be.
     alpha: float
         Controls how deep the troughs of 1.0 / np.sqrt(1.0 + alpha * grad) are,
         with higher values making it nominally more sensitive to grad.
@@ -755,6 +757,43 @@ def fwhm_to_voxel_sigma(fwhm, aff, fwhm_per_sigma=0.4246609):
     return fwhm_per_sigma * np.asarray(fwhm) / utils.voxel_sizes(aff)
 
 
+def boost_bgbtiv(probs, bgbtiv, relboost=0.5, absboost=0.5):
+    """
+    The trained classifiers have deliberately limited locational knowledge,
+    and we know better than them that csf or other outside the gbtiv is probably
+    a distraction. On the other hand, we don't want to completely trust the gbtiv.
+    This returns a copy of probs where air has been upweighted and everything else
+    downweighted outside gbtiv, by an amount controlled by bgbtiv and boost.
+
+    Parameters
+    ----------
+    probs : [nx, ny, nz, 4] np.array
+        A classifier's probabilities for air, brain, csf, and other.
+    bgbtiv : [nx, ny, nz] array
+        Blurred gradient based TIV
+    relboost : float in [0, 1]
+        A relatively gentle boost. Definite tissue/air will still be definite tissue/air afterwards.
+    absboost : float in [0, 1]
+        The no-messing-around boost. What bgbtiv says goes.
+        The output will be boost * boosted + (1 - boost) * probs
+    """
+    boosted = probs.copy()
+    boosted[..., 0] *= 1 - bgbtiv
+    for t in range(1, probs.shape[-1]):
+        boosted[..., t] *= bgbtiv
+    norm = boosted.sum(axis=3)
+    for t in range(probs.shape[-1]):
+        boosted[..., t] /= norm
+    boosted = relboost * boosted + (1 - relboost) * probs
+    absboosted = probs.copy()
+    airprob = probs[..., 0]
+    absboosted[..., 0] = 1 - bgbtiv
+    norm = bgbtiv[airprob < 1] / (1 - airprob[airprob < 1])
+    for t in range(1, probs.shape[-1]):
+        absboosted[airprob < 1, t] *= norm
+    return absboost * absboosted + (1 - absboost) * boosted
+
+
 def _note_progress(mask, label):
     msg = "sum(% 50s):\t%6d" % (label, mask.sum())
     return msg + "\n"
@@ -797,6 +836,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     """
     lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
 
+    probs = boost_bgbtiv(probs, fvecs[..., 4])
+
     augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
     augvecs[..., :fvecs.shape[-1]] = fvecs
     sigma = fwhm_to_voxel_sigma(smoothrad, aff)
@@ -804,6 +845,10 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
                                     output=augvecs[..., v + fvecs.shape[-1]],
                                     mode='nearest')
+
+    # Reboost because blurring caused classes to leak over the gbtiv.
+    augvecs[..., fvecs.shape[-1]:] = boost_bgbtiv(augvecs[..., fvecs.shape[-1]:], fvecs[..., 4])
+
     # augvecs = np.empty(fvecs.shape[:3] + (12,))
     # augvecs[..., :4] = fvecs
     # sigma = fwhm_to_voxel_sigma(smoothrad, aff)
@@ -817,6 +862,10 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # augvecs[..., 4:] = 1 + np.log(augvecs[..., 4:])
     lsvmmask, probs = classify_fvf(augvecs, clf['2nd stage'], t1_will_be_used=t1wtiv is not None)
     posterity = "\nClassified with a 2nd RFC stage.\n"
+
+    # Would be nice, but has little effect since it's usually only lsvmmask that matters after the
+    # 2nd stage.
+    # probs = boost_bgbtiv(probs, fvecs[..., 4])
 
     if t1wtiv is not None:
         # Update probs with t1wtiv blurred along the phase encoding direction.
@@ -875,7 +924,8 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # out of the RFC.  Other in direct contact with brain is much more reliable
     # than distant other, and large chunks of air or other that has been hole
     # filled (after a closing operation) can be reclassified as brain.
-    other = utils.cond_to_mask(tiv, 3)
+    other = np.zeros(fvecs.shape[:3], dtype=np.uint8)
+    other[lsvmmask == 3] = 1
 
     tiv = brain + csf  # + other
     # Close by a bit at first.
@@ -891,7 +941,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         brainholes = holes.copy()
         #csfholes = holes.copy()
         # Big chunks of other in holes are brain.
-        brainholes[probs[..., 1] + probs[..., 2] < probs[..., 2]] = 0
+        brainholes[probs[..., 1] + probs[..., 2] > probs[..., 3]] = 0
         #csfholes[brainholes > 0] = 0
 
         brainholes = utils.binary_opening(brainholes, ball)
@@ -909,7 +959,7 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
 #        posterity += _note_progress(csf, "csf")
 
     # rm cruft
-    bits = utils.binary_opening(brain + csf, ball)
+    bits = utils.binary_opening(brain + csf + other, ball)
     tiv = utils.remove_disconnected_components(bits, inplace=False)
     # # Now close by a lot (slow)
     # #ball = utils.make_structural_sphere(aff, smoothrad)
@@ -934,13 +984,14 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         tiv[bits > 0] = 0
     csf[tiv == 0] = 0  # csf that isn't connected to itself or brain isn't CSF.
     posterity += _note_progress(csf, "csf after trimming by the dilated TIV")
+    other[tiv == 0] = 0  # other that isn't connected to itself or brain isn't CSF.
     posterity += _note_progress(other, "other")
 
     # CSF far away from brain is probably eyeball, so be more aggressive in
     # removing dangly CSF (but watch out for severe atrophy).
     ball = utils.make_structural_sphere(aff, 4 * maxscale)
     #tiv[holes > 0] = 1
-    bits = utils.binary_opening(brain + csf, ball)  # Do NOT connect with other.
+    bits = utils.binary_opening(brain + csf + other, ball)  # Do NOT connect with other.
     tiv = utils.remove_disconnected_components(bits, inplace=False)
     bits[tiv > 0] = 0
     if np.any(bits):
@@ -956,36 +1007,39 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     # remove isolated whiskers of other, but keep large clumps of other near
     # the brain + csf that is probably biased down brain.
     optiv = tiv.copy()
-    optiv[other == 1] = 1
+    #optiv[other == 1] = 1
     if fvecs.shape[-1] > 4:
-        optiv[fvecs[..., 4] > 0.5] = 1  # Use the grad-based TIV
+        optiv[fvecs[..., 4] > 0.75] = 1  # Use the grad-based TIV
+        optiv[fvecs[..., 4] < 0.25] = 0
     ball = utils.make_structural_sphere(aff, 1.5 * maxscale)
     optiv = utils.binary_opening(optiv, ball)
     utils.remove_disconnected_components(optiv, inplace=True)
     optiv[tiv > 0] = 1
+    optiv = utils.binary_closing(optiv, ball)
+    optiv, success = utils.fill_holes(optiv, aff, verbose=False)
     other[optiv == 0] = 0
     posterity += _note_progress(other, "other after trimming by the dilated TIV")
 
-    # Restore voxels at the edge of the TIV with prob(air) <= ...
-    # 0.75 is too much.
-    # 0.625 helps a little bit, but is it significant?
-    ball = utils.make_structural_sphere(aff, maxscale)
-    tiv = brain + csf + other
-    edge = utils.binary_dilation(tiv, ball)
-    edge[tiv > 0] = 0   # Now it's the edge just outside the tiv.
-    probs[..., 0][probs[..., 0] < 0.625] = 0
-    probs = probs.reshape((np.prod(tiv.shape), probs.shape[-1]))
+    # # Restore voxels at the edge of the TIV with prob(air) <= ...
+    # # 0.75 is too much.
+    # # 0.625 helps a little bit, but is it significant?
+    # ball = utils.make_structural_sphere(aff, maxscale)
+    # tiv = brain + csf + other
+    # edge = utils.binary_dilation(tiv, ball)
+    # edge[tiv > 0] = 0   # Now it's the edge just outside the tiv.
+    # probs[..., 0][probs[..., 0] < 0.625] = 0
+    # probs = probs.reshape((np.prod(tiv.shape), probs.shape[-1]))
 
-    clf2 = clf.get('2nd stage', clf['1st stage'])
-    seg = clf2.classes_.take(np.argmax(probs, axis=1), axis=0)
-    seg = seg.reshape(tiv.shape)
-    seg[edge == 0] = 0
-    brain[seg == 1] = 1
-    posterity += _note_progress(brain, "brain after growing")
-    csf[seg == 2]   = 1
-    posterity += _note_progress(csf, "csf after growing")
-    other[seg == 3] = 1
-    posterity += _note_progress(other, "other after growing")
+    # clf2 = clf.get('2nd stage', clf['1st stage'])
+    # seg = clf2.classes_.take(np.argmax(probs, axis=1), axis=0)
+    # seg = seg.reshape(tiv.shape)
+    # seg[edge == 0] = 0
+    # brain[seg == 1] = 1
+    # posterity += _note_progress(brain, "brain after growing")
+    # csf[seg == 2]   = 1
+    # posterity += _note_progress(csf, "csf after growing")
+    # other[seg == 3] = 1
+    # posterity += _note_progress(other, "other after growing")
 
     # Some other voxels that were isolated from other other voxels, but
     # surrounded by brain and csf may have been mistakenly eliminated.
