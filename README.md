@@ -55,6 +55,7 @@ All but the first two can be installed with pip(env).
   use): skl2onnx
 
 ## Versions
+- 2.0.0 released 2024-01-03 (onnx support + improvments from using `morphological_geodesic_active_contour`)
 - 1.3.0 released 2021-06-30 (restores compatibility with recent scikit-learn
   versions, e.g. 0.24.+)
 - 1.2.0 released 2019-09-29 (adds python 3 compatibility)
