@@ -37,7 +37,7 @@ except Exception:                         # I'm not sure this ever gets used any
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "1.4.3 20210626"
+__version__ = "2.0.0 20240102"
 
 
 def get_subprocess_output(cmd, encoding='utf-8'):
