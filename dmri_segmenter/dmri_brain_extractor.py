@@ -863,9 +863,9 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     lsvmmask, probs = classify_fvf(augvecs, clf['2nd stage'], t1_will_be_used=t1wtiv is not None)
     posterity = "\nClassified with a 2nd RFC stage.\n"
 
-    # Would be nice, but has little effect since it's usually only lsvmmask that matters after the
-    # 2nd stage.
-    # probs = boost_bgbtiv(probs, fvecs[..., 4])
+    # Turn off absboost to avoid injecting blurred air into the gbtiv.
+    probs = boost_bgbtiv(probs, fvecs[..., 4], absboost=0)
+    lsvmmask = probs.argmax(axis=3)
 
     if t1wtiv is not None:
         # Update probs with t1wtiv blurred along the phase encoding direction.
