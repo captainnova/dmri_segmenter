@@ -105,7 +105,7 @@ class FLAIRity(object):
         if self.verbose:
             print("Getting the Otsu threshold.")
         thresh = otsu(tisssig)
-        self._mask = np.zeros(tisssig.shape, np.bool)
+        self._mask = np.zeros(tisssig.shape, bool)
         self._mask[tisssig >= thresh] = 1
 
         ball = utils.make_structural_sphere(self.aff, max(10.0, self.maxscale))

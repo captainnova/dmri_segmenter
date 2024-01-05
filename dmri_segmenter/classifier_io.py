@@ -12,6 +12,14 @@ except Exception:                         # I'm not sure this ever gets used any
     import brine
 
 
+def choose_default_clf():
+    if have_onnxruntime:
+        clf = 'RFC_ADNI6_onnx'
+    else:
+        clf = 'RFC_classifier.pickle'
+    return clf
+
+
 def _append_mydir_to_path(path):
     try:
         mydir = os.path.dirname(__file__)

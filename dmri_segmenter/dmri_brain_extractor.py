@@ -26,11 +26,11 @@ import sys
 import warnings
 
 try:
-    from .classifier_io import load_classifier
+    from .classifier_io import choose_default_clf, load_classifier
     from .FLAIRity import FLAIRity
     from . import utils
 except Exception:                         # I'm not sure this ever gets used anymore.
-    from classifier_io import load_classifier
+    from classifier_io import choose_default_clf, load_classifier
     from FLAIRity import FLAIRity
     import utils
 
@@ -115,7 +115,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                            dilate_before_chopping=1, closerad=3.7,
                            whiskradinvox=4, Dt=0.0007, DCSF=0.003,
                            isFLAIR=None, trim_whiskers=True,
-                           svc='RFC_classifier.pickle'):
+                           svc=None):
     """
     Make a brain and a TIV mask from 4D diffusion data.
 
@@ -172,6 +172,12 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         Whether or not data is a FLAIR diffusion acquisition.  If None, try to
         determine it from CSF/tissue brightness ratio by doing a (slow)
         preliminary segmentation.
+    svc : Optional, None, str, or dict
+        The classifier as a directory or filename, or a dict.
+        If None, classifier_io.choose_default_clf() will look for one in onnx
+        format if you have onnx installed, or as a pickle otherwise.
+        (Pickles are liable to break when libraries change. Otherwise
+         there is no difference between the versions.)
 
     Outputs
     -------
@@ -180,6 +186,9 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     tiv: array-like
         3D array which is 1 inside the braincase and 0 outside.
     """
+    if svc is None:
+        svc = choose_default_clf()
+
     aff = ecnii.affine
     # for d in xrange(3):
     #     # Accept up to pi/4 obliqueness.
