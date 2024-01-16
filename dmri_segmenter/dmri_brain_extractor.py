@@ -4,6 +4,7 @@ from __future__ import division
 from builtins import str
 from builtins import range
 import datetime
+#from icecream import ic
 import nibabel as nib
 import numpy as np
 import os
@@ -188,9 +189,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     """
     if svc is None:
         svc = choose_default_clf()
+    #ic(svc)
 
     aff = ecnii.affine
-    # for d in xrange(3):
+    # for d in range(3):
     #     # Accept up to pi/4 obliqueness.
     #     if aff[d, d] < 0.70711 * np.linalg.norm(aff[d, :3]):
     #         # The problem seems to be in get_data(), not nib.save()
@@ -212,6 +214,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     # b0 = utils.calc_average_s0(data, bvals, relbthresh, estimator=np.median)
     scales = utils.voxel_sizes(aff)
     maxscale = max(scales)
+    #ic(scales)
 
     flairness = FLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
                          verbose=verbose, closerad=closerad, forced_flairity=isFLAIR)
@@ -230,7 +233,9 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         print(flair_msg)
 
     if not flairness.flairity:
+        #ic("Starting feature_vector_classify")
         mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
+        #ic("Finished feature_vector_classify")
         tiv = mask + csfmask + other
     else:
         if dilate_before_chopping >= 1:
@@ -1164,6 +1169,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
 
     # Hurl early if we can't get a classifier.
     clf, posterity = load_classifier(clf)
+    #ic(clf)
     if '3rd stage' in clf:
         nstages = 3
     else:

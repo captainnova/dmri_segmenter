@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from dipy.utils.optpkg import optional_package
+#from icecream import ic
 import numpy as np
 import os
 
@@ -86,7 +87,9 @@ class OnnxAsSkl(InferenceSession):
 
     def predict_proba(self, X, probability_label='output_probability',
                       xtype=np.float32):
+        # ic("In OnnxAsSkl.predict_proba")
         input_name = self.get_inputs()[0].name
+        # ic(input_name)
 
         # AFAICT self.run's output is a list with only 1 element: a list of dicts.
         # It's run_options option does not look very useful, and the documentation
@@ -133,15 +136,34 @@ def load_classifier(src, srcpath=['.', '~/.dipy/dmri_segmenter/classifiers']):
     if isinstance(src, dict):
         clf = src
         posterity = "Using already instantiated classifier dict.\n"
+        # ic(posterity)
     else:
         loadfrom = find_thing_in_path(src, _append_mydir_to_path(srcpath))
+        # ic(loadfrom)
         posterity = "Classifier loaded from %s.\n" % os.path.abspath(loadfrom)
         if os.path.isdir(loadfrom):
             if have_onnxruntime:
                 clf = brine.debrine(os.path.join(loadfrom, 'dict.pickle'))
+                #onnxruntime.set_default_logger_severity(0)
+                #onnxruntime.set_default_logger_verbosity(0)
+                # ic(onnxruntime.get_available_providers())
+
+                # Limit the number of threads for compatibility with slurm.
+                # https://github.com/microsoft/onnxruntime/issues/10736
+                # That says you should internally limit the multiprocessing/threading
+                # like below, *and* run slurm with sbatch --cpus-per-task m --threads-per-core n
+                # with m and n >= 1. The latter doesn't appear to be necessary, or effective
+                # without the internal limiting.
+                so = onnxruntime.SessionOptions()
+                so.intra_op_num_threads = 1
+                so.inter_op_num_threads = 1
+
                 stages = [k for k in clf if isinstance(k, str) and k.endswith('stage')]
                 for s in stages:
-                    clf[s] = OnnxAsSkl(os.path.join(loadfrom, clf[s]))
+                    # ic(s)
+                    # ic(os.path.join(loadfrom, clf[s]))
+                    clf[s] = OnnxAsSkl(os.path.join(loadfrom, clf[s]), so)
+                    # ic(clf[s])
                     clf[s].classes_ = clf['classes_'][s]
             else:
                 raise ValueError("onnxruntime must be installed to use a multifile classifier")
