@@ -67,7 +67,7 @@ def get_subprocess_output(cmd, encoding='utf-8'):
     return out.decode(encoding)
 
 
-def get_version_info(repo_info_cmd="git log --max-count=1"):
+def get_version_info(lcmfn="last_commit_message"):
     """
     Returns a str blurb identifying the version of this file, and if available,
     the last commit message.
@@ -84,25 +84,22 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
         filename = "dmri_brain_extractor.py"
     vinfo = filename + " version: " + __version__ + "\n"
 
-    # Aargh, apparently we have to be in the git directory tree, or at least
-    # its filesystem, for git log to work.
-    startdir = os.path.abspath(os.curdir)
     try:
-        gitdir = os.path.dirname(filename)
-        os.chdir(gitdir)
-        repo_info = get_subprocess_output(repo_info_cmd + " " + filename)
-        if repo_info:
+        gitdir = os.path.dirname(os.path.dirname(filename))
+        if not os.path.isabs(lcmfn):
+            lcmfn = os.path.join(gitdir, lcmfn)
+        if os.path.exists(lcmfn):
+            with open(lcmfn) as f:
+                lcm = f.read()
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
             vinfo += "The most recent dmri_segmenter commit was:\n"
-            vinfo += repo_info
+            vinfo += lcm
             vinfo += "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%\n"
     except Exception as e:
-        # I don't think it's really worth worrying anyone if they installed
-        # this outside of a repository.
+        # I don't think it's really worth worrying anyone if we can't get the
+        # last commit message.
         warnings.warn("Trying to get the repository info for %s failed with:\n\t%s\n"
                       % (filename, e), RuntimeWarning)
-    finally:
-        os.chdir(startdir)
     return vinfo
 
 
