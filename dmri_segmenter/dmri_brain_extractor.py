@@ -38,7 +38,7 @@ except Exception:                         # I'm not sure this ever gets used any
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "2.0.0 20240102"
+__version__ = "2.1.0 20240503"
 
 
 def get_subprocess_output(cmd, encoding='utf-8'):
@@ -71,6 +71,12 @@ def get_version_info(repo_info_cmd="git log --max-count=1"):
     """
     Returns a str blurb identifying the version of this file, and if available,
     the last commit message.
+
+    TODO: Replace this with a reading a file written by a (pre-)commit hook,
+    since git >= 2.35 refuses to read other people's git repos unless the
+    target repo is marked safe. Apparently there is a security risk where
+    git would read the other repo's configuration and could be tricked into
+    doing something nefarious.
     """
     try:
         filename = __file__.replace('.pyc', '.py')
@@ -111,12 +117,100 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     nib.save(mnii, outfn)
 
 
+def get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping, maxscale, flairness, aff, verbose, dilate,
+                                      nmed, medrad, whiskradinvox, trim_whiskers, closerad):
+    if dilate_before_chopping >= 1:
+        dilrad = dilate_before_chopping * maxscale
+    else:
+        dilrad = 0
+    mask = utils.remove_disconnected_components(flairness.mask, aff, dilrad, verbose=verbose)
+
+    if dilate:
+        # Dilate once with a big ball instead of multiple times with a small
+        # one since the former will better approximate a sphere.
+        if dilate is True:
+            dilate = nmed * medrad
+        if dilate >= 1:
+            dilrad = dilate * maxscale
+            if verbose:
+                print("Dilating with radius %f." % dilrad)
+            ball = utils.make_structural_sphere(aff, dilrad)
+            mask = utils.binary_dilation(mask, ball)
+        else:
+            mask = utils.binary_dilation(mask)
+
+    # In principle the brain is a hole in the CSF (depending on how you cut off
+    # the spine), but in practice this is just a waste of time - it's better to
+    # include dark brain voxels by accepting nonCSF voxels that are mostly
+    # surrounded by known brain tissue.
+    # csfholes, success = utils.fill_holes(flairity.csfmask, aff, closerad * maxscale, verbose)
+    # csfholes[flairity.csfmask > 0] = 0
+    # mask[csfholes > 0] = 1
+    # mask, success = utils.fill_holes(mask, aff, closerad * maxscale, verbose)
+
+    # Trim any whiskers caused by susceptibility problems.
+    whiskrad = whiskradinvox * maxscale
+    ball = utils.make_structural_sphere(aff, whiskrad)
+
+    omask = utils.binary_closing(mask, ball)  # Fill in sulci
+    omask = utils.binary_opening(omask, ball)
+    omask = utils.remove_disconnected_components(omask, aff, 0)
+    omask = utils.binary_dilation(omask, ball)
+    whiskers = mask.copy()
+    whiskers[omask > 0] = 0  # Anything in mask that isn't within whiskrad of the opened mask.
+    whiskers = utils.binary_dilation(whiskers, ball)
+    #
+    # Remove anything within whiskrad of the undilated whiskers, to account for the gap
+    # made by dilating omask.
+    if verbose:
+        print("Removing %d whisker voxels" % sum(mask[whiskers > 0]))
+    mask[whiskers > 0] = 0
+    mask = utils.remove_disconnected_components(mask, aff, dilrad, verbose=verbose)
+
+    # Now, to get very dark voxels (putamen), close, and then remove CSF.
+    tiv = utils.binary_closing(mask, ball)
+
+    if trim_whiskers:
+        # More whisker removal
+        gaprad = max(closerad, 2 * maxscale)
+        ball = utils.make_structural_sphere(aff, gaprad)
+        omask = utils.binary_dilation(tiv, ball)
+        omask, success = utils.fill_holes(omask, aff, gaprad, verbose)
+        flairness.csfmask[omask == 0] = 0
+        tiv[flairness.csfmask > 0] = 1
+        tiv, success = utils.fill_holes(tiv, aff, 0, verbose)
+        #ball = utils.make_structural_sphere(aff, dilrad)
+        tiv = utils.binary_erosion(tiv, ball)
+        tiv = utils.remove_disconnected_components(tiv, aff, 0, verbose=verbose)
+        tiv = utils.binary_dilation(tiv, ball)
+        tiv[omask == 0] = 0
+        #tiv = utils.binary_closing(tiv, ball)
+    return mask, tiv
+
+
+def _print_flair_msg(isFLAIR, flairness, verbose):
+    if isFLAIR is None:
+        if flairness.flairity:
+            flair_msg = "This appears"
+        else:
+            flair_msg = "This does not appear"
+        flair_msg += " to be a FLAIR acquisition"
+    else:
+        flair_msg = "Treating this as a "
+        if not isFLAIR:
+            flair_msg += "non-"
+        flair_msg += "FLAIR scan as instructed."
+    if verbose:
+        print(flair_msg)
+    return flair_msg
+
+
 def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
                            medrad=1, nmed=2, verbose=True, dilate=True,
                            dilate_before_chopping=1, closerad=3.7,
                            whiskradinvox=4, Dt=0.0007, DCSF=0.003,
                            isFLAIR=None, trim_whiskers=True,
-                           svc=None):
+                           svc=None, t1wtiv=None):
     """
     Make a brain and a TIV mask from 4D diffusion data.
 
@@ -179,6 +273,10 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
         format if you have onnx installed, or as a pickle otherwise.
         (Pickles are liable to break when libraries change. Otherwise
          there is no difference between the versions.)
+    t1wtiv : Optional, str, Path, or None
+        Filename of a .nii to load the undistorted (e.g. T1w) intracranial
+        mask from. It must be in the same space as data, and is only used as a
+        blurry prior.
 
     Outputs
     -------
@@ -218,94 +316,16 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
 
     flairness = FLAIRity(data, aff, bvals, relbthresh, maxscale, Dt, DCSF, nmed, medrad,
                          verbose=verbose, closerad=closerad, forced_flairity=isFLAIR)
-    if isFLAIR is None:
-        if flairness.flairity:
-            flair_msg = "This appears"
-        else:
-            flair_msg = "This does not appear"
-        flair_msg += " to be a FLAIR acquisition"
-    else:
-        flair_msg = "Treating this as a "
-        if not isFLAIR:
-            flair_msg += "non-"
-        flair_msg += "FLAIR scan as instructed."
-    if verbose:
-        print(flair_msg)
+    flair_msg = _print_flair_msg(isFLAIR, flairness, verbose)
 
     if not flairness.flairity:
         #ic("Starting feature_vector_classify")
-        mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc)
+        mask, csfmask, other, submsg = feature_vector_classify(data, aff, bvals, clf=svc, t1wtiv=t1wtiv)
         #ic("Finished feature_vector_classify")
         tiv = mask + csfmask + other
     else:
-        if dilate_before_chopping >= 1:
-            dilrad = dilate_before_chopping * maxscale
-        else:
-            dilrad = 0
-        mask = utils.remove_disconnected_components(flairness.mask, aff, dilrad, verbose=verbose)
-
-        if dilate:
-            # Dilate once with a big ball instead of multiple times with a small
-            # one since the former will better approximate a sphere.
-            if dilate is True:
-                dilate = nmed * medrad
-            if dilate >= 1:
-                dilrad = dilate * maxscale
-                if verbose:
-                    print("Dilating with radius %f." % dilrad)
-                ball = utils.make_structural_sphere(aff, dilrad)
-                mask = utils.binary_dilation(mask, ball)
-            else:
-                mask = utils.binary_dilation(mask)
-        submsg = ''
-
-        # In principle the brain is a hole in the CSF (depending on how you cut off
-        # the spine), but in practice this is just a waste of time - it's better to
-        # include dark brain voxels by accepting nonCSF voxels that are mostly
-        # surrounded by known brain tissue.
-        # csfholes, success = utils.fill_holes(flairity.csfmask, aff, closerad * maxscale, verbose)
-        # csfholes[flairity.csfmask > 0] = 0
-        # mask[csfholes > 0] = 1
-        # mask, success = utils.fill_holes(mask, aff, closerad * maxscale, verbose)
-
-        # Trim any whiskers caused by susceptibility problems.
-        whiskrad = whiskradinvox * maxscale
-        ball = utils.make_structural_sphere(aff, whiskrad)
-
-        omask = utils.binary_closing(mask, ball)  # Fill in sulci
-        omask = utils.binary_opening(omask, ball)
-        omask = utils.remove_disconnected_components(omask, aff, 0)
-        omask = utils.binary_dilation(omask, ball)
-        whiskers = mask.copy()
-        whiskers[omask > 0] = 0  # Anything in mask that isn't within whiskrad of the opened mask.
-        whiskers = utils.binary_dilation(whiskers, ball)
-        #
-        # Remove anything within whiskrad of the undilated whiskers, to account for the gap
-        # made by dilating omask.
-        if verbose:
-            print("Removing %d whisker voxels" % sum(mask[whiskers > 0]))
-        mask[whiskers > 0] = 0
-        mask = utils.remove_disconnected_components(mask, aff, dilrad, verbose=verbose)
-
-        # Now, to get very dark voxels (putamen), close, and then remove CSF.
-        tiv = utils.binary_closing(mask, ball)
-
-        if trim_whiskers:
-            # More whisker removal
-            gaprad = max(closerad, 2 * maxscale)
-            ball = utils.make_structural_sphere(aff, gaprad)
-            omask = utils.binary_dilation(tiv, ball)
-            omask, success = utils.fill_holes(omask, aff, gaprad, verbose)
-            flairness.csfmask[omask == 0] = 0
-            tiv[flairness.csfmask > 0] = 1
-            tiv, success = utils.fill_holes(tiv, aff, 0, verbose)
-            #ball = utils.make_structural_sphere(aff, dilrad)
-            tiv = utils.binary_erosion(tiv, ball)
-            tiv = utils.remove_disconnected_components(tiv, aff, 0, verbose=verbose)
-            tiv = utils.binary_dilation(tiv, ball)
-            tiv[omask == 0] = 0
-            #tiv = utils.binary_closing(tiv, ball)
-
+        mask, tiv = get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping, maxscale, flairness, aff, verbose, dilate,
+                                                      nmed, medrad, whiskradinvox, trim_whiskers, closerad)
     exttext  = "Mask made " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n"
     exttext += """
     by get_dmri_brain_and_tiv(data, %s, brfn, tivfn,
@@ -813,8 +833,19 @@ def _note_progress(mask, label):
     return msg + "\n"
 
 
+def renormalize_probs(probs):
+    """
+    Return a version of probs with the last axis summing to 1.
+    """
+    sprobs = probs.sum(axis=-1)
+    out = probs.astype(float)
+    for category in range(probs.shape[-1]):
+        out[..., category] /= sprobs
+    return out
+
+
 def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
-                           t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
+                           t1wtiv=None, t1fwhm=(2.0, 10.0, 2.0)):
     """
     Do a probabilistic segmentation.
 
@@ -903,6 +934,9 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
         # Set otherwise irreconcilable disagreements to other (not other,
         # because other is more fragile in morphological filter steps later).
         probs[sprobs < 0.01, 3] = 1
+        probs[sprobs < 0.01, :3] = 0
+
+        probs = renormalize_probs(probs)
 
         probsr = np.reshape(probs, (np.prod(probs.shape[:3]), probs.shape[-1]))
         mask = clf['2nd stage'].classes_.take(np.argmax(probsr, axis=1), axis=0)
@@ -1091,7 +1125,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
                             relbthresh=0.04, smoothrad=10.0, s0=None, Dt=0.0021,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
-                            t1wtiv=None, t1fwhm=[2.0, 10.0, 2.0]):
+                            t1wtiv=None, t1fwhm=(2.0, 10.0, 2.0)):
     """
     Make at least one feature vector field from data, and use for segmentation
     with a trained sklearn classifier.
