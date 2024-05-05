@@ -1,0 +1,5 @@
+commit 6526682b26bef3e0db1451ca3baa02d90284eec8
+Author: Robert Reid <reid.robert@mayo.edu>
+Date:   Sun May 5 14:43:09 2024 -0500
+
+    security + convenience update for get_version_info()
