@@ -22,7 +22,6 @@ try:
 except ImportError:
     import dipy.utils.six as six
 import socket
-import subprocess
 import sys
 import warnings
 
@@ -38,33 +37,7 @@ except Exception:                         # I'm not sure this ever gets used any
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "2.1.0 20240503"
-
-
-def get_subprocess_output(cmd, encoding='utf-8'):
-    """
-    Get the output and stderr of cmd as strs. Basically
-    subprocess.check_output, but subprocess.check_output only became available
-    with python 2.7.
-
-    cmd can be either a list or strs or a str that will be converted
-    into a list of strs with .split(). (NOT shlex.split!)
-
-    If cmd's exit code is nonzero this will raise a CalledProcessError.  The
-    CalledProcessError object will have the return code in the returncode
-    attribute and output in the output attribute.
-    """
-    if isinstance(cmd, six.string_types):
-        cmd = cmd.split()
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-
-    # For some reason subprocess.check_output() explicitly does not use err.
-    # I hope it is a good reason.
-    out, unused_err = p.communicate()
-    retcode = p.poll()
-    if retcode:
-        raise subprocess.CalledProcessError(retcode, cmd, output=out)
-    return out.decode(encoding)
+__version__ = "2.2.0 20240505"
 
 
 def get_version_info(lcmfn="last_commit_message"):

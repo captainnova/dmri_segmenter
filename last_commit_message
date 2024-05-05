@@ -1,5 +1,5 @@
-commit 6526682b26bef3e0db1451ca3baa02d90284eec8
+commit 163dcfc172ca35eb409b60cbeef11abb969103db
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sun May 5 14:43:09 2024 -0500
+Date:   Sun May 5 14:46:25 2024 -0500
 
-    security + convenience update for get_version_info()
+    Checks in last_commit_message for people not making mods.
