@@ -1,5 +1,5 @@
-commit 163dcfc172ca35eb409b60cbeef11abb969103db
+commit cb5adf434a1021f429aa270b140eb2414efbe740
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sun May 5 14:46:25 2024 -0500
+Date:   Sun May 5 15:03:12 2024 -0500
 
-    Checks in last_commit_message for people not making mods.
+    removes subprocess since it is no longer needed

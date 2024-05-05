@@ -7,7 +7,7 @@
 
 ## About
 This package includes both a program, skullstrip_dmri, already trained to strip
-(adult human) skulls from in vivo diffusion MR images, and software for
+skulls from in vivo adult human diffusion MR images, and software for
 training it to recognize tissue classes for other types of diffusion MRI (dMRI)
 subjects. Skull stripping is typically needed, or at least wanted, early in a
 dMRI processing pipeline to prevent divisions by zero, avoid computations on
@@ -50,12 +50,16 @@ All but the first two can be installed with pip(env).
 - future (for python 2/3 compatibility)
 - scikit-image
 - scikit-learn
-- if using scikit-learn > 0.23.2: onnxruntime
+- if using scikit-learn > 0.23.2 (very likely): onnxruntime
 - optional (needed for saving trained classifiers in onnx format, not for day-to-day
   use): skl2onnx
 
 ## Versions
-- 2.0.0 released 2024-01-03 (onnx support + improvments from using `morphological_geodesic_active_contour`)
+- 2.0.0 released 2024-01-03 (onnx support + improvements from using
+  `morphological_geodesic_active_contour`)
+  - If you had trouble before with either loading the classifier, or
+    challenging images with iffy receiver coils and/or nasty EPI distortion,
+    2+ should help a lot - please give it a try!
 - 1.3.0 released 2021-06-30 (restores compatibility with recent scikit-learn
   versions, e.g. 0.24.+)
 - 1.2.0 released 2019-09-29 (adds python 3 compatibility)
@@ -184,11 +188,43 @@ cd GE/0; fsleyes dtb_eddy_fvecs.nii dmri_segment.nii & # Save to dmri_segment_ed
 # List the training directories into a file.
 echo [GPS]*/* | sed 's/ /\n/g' > all.srclist
 
-time /mnt/data/m101013/src/dmri_segmenter/train_from_multiple training.srclist all dtb_eddy_fvecs.nii &
+time dmri_segmenter/train_from_multiple training.srclist all dtb_eddy_fvecs.nii &
 real	1m0.472s
 user	1m50.555s
 sys	0m6.735s
 ```
+
+### Comparison to Other Skull Strippers for dMRI
+For a detailed but dated comparison of old skullstrip\_dmri (v. 1.0.0) to
+competing older skull strippers, see the 2018 reference below. In the meantime,
+an interesting deep learning based skull stripper has arrived on the scene:
+[SynthStrip](https://surfer.nmr.mgh.harvard.edu/docs/synthstrip/), which is
+included in FreeSurfer 7+.
+
+Wait, FreeSurfer, you say - does that mean it's for T1-weighted images? Well,
+sort of. They trained with T1w inputs, but only after applying all sorts of
+corruptions to the contrast to prevent the network from getting attached to any
+particular type of contrast. It works quite well with dMRI, and has a similar
+runtime to dmri\_segmenter. (Surprisingly, mri\_synthstrip's GPU option seems
+to make it slower.) The results are different in the details,
+though. dmri\_segmenter deliberately avoids using a neural network, and does
+not have a strong prior for the overall shape and size of a skull. (It does
+have expectations for the diffusion properties of tissue and CSF.) SynthStrip
+is not picky about the contrast, but does have a strong prior of what a skull
+should look like, and as far as I can tell, EPI distortion was _not_ included
+in the list of perturbations for the training data. Thus SynthStrip tends to
+miss parts that have been stretched out by EPI distortion, but on the other
+hand can get places like under the recti where the signal has completely
+dropped out. Since there is no signal there anyway, and I am biased, I prefer
+dmri\_segmenter. But if you're lucky enough to not have to deal with severe EPI
+distortion then SynthStrip offers the convenience of one skull stripper for all
+scan types.
+
+Since dmri\_segmenter supports using a "T1"-based TIV mask as a prior (that it
+blurs in the y direction to account for EPI distortion), you can use the output
+of SynthStrip (or any other stripper that makes a mask .nii) as a suggestion
+for dmri\_segmenter. Unsurprisingly, the result tends to be somewhere between
+the suggestion and what dmri\_segmenter would produce by itself.
 
 ## Acknowledgements
 The images used to train the default version of the classifier
