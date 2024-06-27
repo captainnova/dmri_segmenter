@@ -55,6 +55,19 @@ All but the first two can be installed with pip(env).
   use): skl2onnx
 
 ## Versions
+- 2.3.0 released 2024-06-27 Improved support for problem data with badly
+  placed FOVs, inoptimally corrected susceptibility distortion, and CSF that is
+  much brighter than brain tissue at b = 0. (i.e. a ratio ~ 4 instead of ~2).
+  - The CSF/brain brightness ratio is now empirically estimated using a 1st
+    pass at the tissue class probabilities, so for better or worse this is
+    making every scan's runtime longer for the benefit of a few. Presumably
+    this is worth it since otherwise dealing with those few would be very
+    time consuming.
+  - It now also uses internal bias field correction to ameliorate "signal
+    shading".  Don't get too excited - it doesn't make much difference to the
+    segmentation, the field it is correcting is a combination of the coil
+    sensitivity map and signal dilution by susceptibility distortion; it is not
+    the classic sensitivity map.
 - 2.0.0 released 2024-01-03 (onnx support + improvements from using
   `morphological_geodesic_active_contour`)
   - If you had trouble before with either loading the classifier, or
@@ -219,6 +232,11 @@ dropped out. Since there is no signal there anyway, and I am biased, I prefer
 dmri\_segmenter. But if you're lucky enough to not have to deal with severe EPI
 distortion then SynthStrip offers the convenience of one skull stripper for all
 scan types.
+
+I also noticed that mri\_synthstrip's --no-csf option includes the CSF in the
+ventricles, which is most of the CSF in older people! I don't think that sort
+of segmentation is the main point of either mri\_synthstrip or dmri\_segmenter,
+though.
 
 Since dmri\_segmenter supports using a "T1"-based TIV mask as a prior (that it
 blurs in the y direction to account for EPI distortion), you can use the output

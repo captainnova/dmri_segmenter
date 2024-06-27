@@ -37,7 +37,7 @@ except Exception:                         # I'm not sure this ever gets used any
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "2.2.0 20240505"
+__version__ = "2.3.0 20240627"
 
 
 def get_version_info(lcmfn="last_commit_message"):
@@ -296,6 +296,7 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
     else:
         mask, tiv = get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping, maxscale, flairness, aff, verbose, dilate,
                                                       nmed, medrad, whiskradinvox, trim_whiskers, closerad)
+        submsg = ""
     exttext  = "Mask made " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n"
     exttext += """
     by get_dmri_brain_and_tiv(data, %s, brfn, tivfn,
@@ -384,6 +385,7 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     """
     if s0 is None:
         s0 = utils.calc_average_s0(data, bvals, relbthresh)
+    noise = np.median(s0[s0 < otsu(s0)])
     rbl = (bvals[bvals > 0] * Dt)**0.5
     et = np.ones(len(bvals))
     et[bvals > 0] = 0.5 * np.pi**0.5 * scipy.special.erf(rbl) / rbl
@@ -396,13 +398,15 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     for v, etv in enumerate(et):
         vw = w[v] / etv
         if vw > 0:
-            madje += vw * data[..., v]
+            db2 = data[..., v]**2 - noise**2
+            db2[db2 < 0] = 0
+            madje += vw * db2**0.5
     #madje = np.average(dataoet, axis=-1, weights=w)
 
     thresh = otsu(madje)
     brightness_scale = np.median(s0[madje > thresh])
     regularizer = regscale * brightness_scale
-    madje /= (s0**2 + regularizer**2)**0.5
+    madje *= ((1.0 + (noise / brightness_scale)**2) / (s0**2 + regularizer**2))**0.5
 
     madje[s0 == 0] = blankval
     madje[np.isnan(madje)] = blankval
@@ -411,28 +415,134 @@ def make_mean_adje(data, bvals, relbthresh=0.04, s0=None, Dt=0.00210, Dcsf=0.003
     return madje, brightness_scale
 
 
+def seal_edges(src, mask, aff, dilation):
+    """
+    Treating the TIV as the biggest hole inside the gradient defined edge
+    is great, except when there is a "leak" to the outside; then it is
+    disastrous. Such leaks can happen when the FOV is placed badly, or when
+    eddy zeros the top and bottom slices.
+
+    If mask touches an edge, that edge is closed using dilation and then
+    2D hole filled. Otherwise, that edge is completely filled with ones
+    (the eddy case).
+
+    Parameters
+    ----------
+    src : 3D array, nominally float
+       The source image that mask was made from. An edge is only completely
+       filled with ones if it is all zeroes in *src* (the eddy case).
+    mask : 3D bool array
+        The mask to be copied and sealed on its top and bottom,
+        left and right, and front and back sides.
+    aff : 4x4 affine array
+    dilation : float
+        The dilation radius, in aff's units, used to close mask in 2D
+        before hole filling its edges.
+
+    Returns
+    -------
+    smask : 3D bool array
+        Edge sealed mask
+    """
+    selector = [slice(None)] * 3
+    smask = mask.copy()
+    nfilled = 0
+    for ax in range(3):
+        end = mask.shape[ax] - 1
+        disk = utils.make_disk(aff, ax, dilation)
+        for ind in (0, end):
+            slicer = selector.copy()
+            slicer[ax] = ind
+            slicer = tuple(slicer)
+            if (src[slicer] == 0).all():
+                smask[slicer] = True       # Suspiciously zeroed (by eddy?)
+                nfilled += 1
+            else:
+                smask[slicer], _ = utils.fill_holes(smask[slicer], aff, verbose=False, inplace=True,
+                                                    ball=disk)
+    if nfilled == 6:
+        print("Warning! All of the edges have been filled with ones! Hole filling will fill from the edges in!")
+    return smask
+    
+
 def grad_based_tiv_from_pd(pd, aff, sigma, norm, compscale, ball, relthresh=0.5,
-                           ncomponents=1, is_phantom=False):
+                           ncomponents=1, is_phantom=False, pd_bias=0.5):
+    """
+    Make a TIV mask which is mostly based on finding the edge of a proton
+    density approximation.
+
+    Parameters
+    ----------
+    pd : 3D array of floats
+        The proton density approximation
+    aff : 4 x 4 array of floats
+        The affine matrix
+    sigma : float
+        Blurring radius for gaussian_gradient_magnitude, in aff's units.
+    norm : 3D array of floats
+        Blurred pd or similar to account for brightness shading
+    compscale : float
+        Dilation radius in aff's units for filling in edges
+    relthresh : float
+        Factor to lower the Otsu(grad) threshold by.
+    ncomponents : int
+        Keep the ncomponents largest components
+    is_phantom : bool
+    pd_bias : float
+        Bias the gradient by pd_bias * relthresh * Otsu(grad) * edge(thresholded pd)
+        to fill in susceptibility blurred holes and deemphasize edges that are
+        distant from the brain.
+    """
     # Use mode='constant' (with implied cval=0) so that the TIV is capped.
     grad = ndi.gaussian_gradient_magnitude(pd, sigma, mode='constant') / norm
 
     thresh = relthresh * otsu(grad)
-    gradmask = np.zeros(pd.shape, dtype=np.uint8)
-    gradmask[grad > thresh] = 1
 
-    fgmask, _ = utils.fill_holes(gradmask, aff, 3.0 * compscale, verbose=False)
+    # Sometimes susceptibility blurs so much that it leaves holes in the
+    # gradient based TIV edge, causing hole filling below to fill the wrong
+    # hole. We know that thresholding pd is approximately correct, so let it help.
+    pdmask = np.zeros(pd.shape, dtype=np.uint8)
+    pdmask[pd > otsu(pd)] = 1
+    dpdmask = utils.binary_dilation(pdmask, ball)
+    #
+    # Deemphasize edges far away from pd, because there might be large voids
+    # inside the head that *aren't* the TIV and/or leaks to the air, and we
+    # need the largest hole step below to work.
+    bgrad = grad.copy()
+    bgrad[dpdmask == 0] -= pd_bias * thresh
+    #
+    # Emphasize the part right outside pd.
+    dpdmask[pdmask > 0] = 0
+    bgrad[dpdmask > 0] += pd_bias * thresh
+    
+    gradmask = np.zeros(pd.shape, dtype=np.uint8)
+    gradmask[bgrad > thresh] = 1
+
+    segradmask = seal_edges(pd, gradmask, aff, 3.0 * compscale)
+    fgmask, _ = utils.fill_holes(segradmask, aff, 3.0 * compscale, verbose=False)
     if is_phantom:
         # Remove the "outside" part of gradmask.
         fgmask = utils.binary_erosion(fgmask, ball)
     else:
-        # We need to remove the eyeballs, so remove all of gradmask.
-        fgmask[gradmask > 0] = 0
+        # We need to remove the eyeballs, so remove all of segradmask.
+        fgmask[segradmask > 0] = 0
     fgmask = utils.binary_opening(fgmask, ball)
     utils.remove_disconnected_components(fgmask, inplace=True, nkeep=ncomponents,
                                          weight=pd)
     fgmask = utils.binary_dilation(fgmask, ball)
     fgmask = utils.binary_closing(fgmask, ball)
-    fgmask, success = utils.fill_holes(fgmask, aff, verbose=False)
+    sefgmask = seal_edges(pd, fgmask, aff, 3.0 * compscale)
+    edges = sefgmask.copy()
+    edges[fgmask > 0] = 0
+    fgmask, success = utils.fill_holes(sefgmask, aff, verbose=False)
+    fgmask[edges > 0] = 0
+
+    if fgmask.sum() == 0:
+        msg =  "Warning: grad_based_tiv_from_pd returned an empty mask. There was probably\n"
+        msg += "a hole due to susceptibility blurring out the edge. Falling back to a mask\n"
+        msg += "made by thresholding a proton density approximation.\n"
+        print(msg)
+        fgmask[pd > otsu(pd)] = 1
 
     return fgmask, grad
 
@@ -502,7 +612,7 @@ def mgac_improve_mask(mask, grad, pd, aff, voxscale, thresh=None, npedvox=3, ped
 
 
 def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
-                        ncomponents=1, is_phantom=False):
+                        ncomponents=1, is_phantom=False, pd=None):
     """
     The edge of the TIV is usually apparent to the eye even when a bad bias
     field precludes using a constant intensity threshold to pick out the TIV,
@@ -525,10 +635,15 @@ def make_grad_based_TIV(s0, madje, aff, softener=0.2, dr=2.0, relthresh=0.5,
     ncomponents: None or int > 0
         The number of separate regions to keep, sorted by s0-weighted size.
         If None it will be determined by Otsu thresholding.
+    is_phantom: bool
+    pd : Optional, None or array
+       An approximation of a proton (specifically, hydrogen) density image.
+       If None, one will be calculated using s0 and madje.
     """
-    # Approximate a proton density image by making the CSF and tissue more
-    # isointense.
-    pd = s0 * (1 + 2 * madje)
+    if pd is None:
+        # Approximate a proton density image by making the CSF and tissue more
+        # isointense.
+        pd = s0 * (1 + 2 * madje)
 
     voxdims = utils.voxel_sizes(aff)
 
@@ -851,11 +966,15 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     """
     lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
 
+    sigma = fwhm_to_voxel_sigma(smoothrad, aff)
+    #ndi.filters.gaussian_filter(1 - probs[..., 0], sigma=sigma, output=fvecs[..., 4],
+    #                            mode='nearest')
+    #fvecs[..., 4] *= fvecs[..., 4]
+
     probs = boost_bgbtiv(probs, fvecs[..., 4])
 
     augvecs = np.empty(fvecs.shape[:3] + (fvecs.shape[3] + probs.shape[-1],))
     augvecs[..., :fvecs.shape[-1]] = fvecs
-    sigma = fwhm_to_voxel_sigma(smoothrad, aff)
     for v in range(probs.shape[-1]):
         ndi.filters.gaussian_filter(probs[..., v], sigma=sigma,
                                     output=augvecs[..., v + fvecs.shape[-1]],
@@ -1091,11 +1210,79 @@ def probabilistic_classify(fvecs, aff, clf, smoothrad=10.0,
     return lsvmmask, probs, posterity
 
 
+def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
+    """
+    Get the probabilities from fvecs and clf (and t1wtiv and t1fwhm),
+    estimate the average brightness for each tissue class,
+    predict the voxel brightnesses unbiased by the coil sensitivity map,
+    calculate ln(s0 / prediction), blur it, and exponentiate that to get the bias field,
+    use it to correct fvecs.
+    """
+    lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
+    nclasses = probs.shape[-1]
+
+    mean_brightnesses = np.linalg.lstsq(probs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
+                                        s0.flat, rcond=None)[0]
+    pred = np.zeros_like(s0)
+    bfloor = 0.5 * min(mean_brightnesses)
+    for v in range(nclasses):
+        pred += mean_brightnesses[v] * probs[..., v]
+    logbias = 0.5 * np.log((s0**2 + bfloor**2) / (pred**2 + bfloor**2))
+    del pred
+    
+    # There is a lot of stuff in probs[..., 0] that isn't air, and that throws
+    # off the bias estimate. We don't need bias correction in the air, so just
+    # attenuate it.
+    logbias *= 1.0 - probs[..., 0]
+    
+    ndi.filters.gaussian_filter(logbias, sigma=smoothrad, output=logbias, mode='nearest')
+    bias = np.exp(logbias)
+
+    logbias /= np.log(10)
+    for v in (0, 1):
+        fvecs[..., v] -= logbias
+    del logbias
+    fveclog = "Corrected for bias: the rms factor was %f." % np.std(bias)
+
+    if fvecs.shape[-1] > 4:
+        # Remake the grad-based TIV, using a better pd approximation that isn't
+        # just bias corrected, but does away with the assumption that CSF is 2x
+        # as bright as tissue. To make the new PD we will multiply bias
+        # corrected s0 by sum(prob[..., v] / mean_brightnesses[v]), to simulate
+        # what s0 would look like if all the tissue classes had the same
+        # intrinsic brightness.  But because the tissue weighted *brightness*
+        # needs to be weighted by both tissue fraction (p) and intrinsic tissue
+        # brightness (T), the "p/T" factor is really sum(pT) / sum(pT**2).
+        bcs0 = s0 / bias
+        pd = np.zeros_like(s0)
+        pd_denom = np.zeros_like(s0)
+        #
+        # Call the stuff outside the TIV other.
+        mean_brightnesses[0] = mean_brightnesses[3]
+        #
+        for v in range(nclasses):
+            pd += probs[..., v] * mean_brightnesses[v]
+            pd_denom += probs[..., v] * mean_brightnesses[v]**2
+        pd = bcs0 * pd / pd_denom
+        del bcs0
+        del pd_denom
+        
+        # Before blurring the grad based TIV, close it to avoid demphasizing
+        # susceptibility horns.
+        gbtiv = make_grad_based_TIV(None, None, aff, pd=pd)
+        sigma = smoothrad / utils.voxel_sizes(aff)
+        ball = utils.make_structural_sphere(aff, smoothrad)
+        gbtiv = utils.binary_closing(gbtiv, ball)
+        fvecs[..., 4] = ndi.gaussian_filter(gbtiv.astype(float), sigma, mode='nearest')
+    return fvecs, fveclog, bias
+
+
 def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
                             relbthresh=0.04, smoothrad=10.0, s0=None, Dt=0.0021,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
-                            t1wtiv=None, t1fwhm=(2.0, 10.0, 2.0)):
+                            t1wtiv=None, t1fwhm=(2.0, 10.0, 2.0),
+                            bias_correct=True):
     """
     Make at least one feature vector field from data, and use for segmentation
     with a trained sklearn classifier.
@@ -1198,6 +1385,10 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
                                               s0, Dt, Dcsf, blankval, clamp, normslop,
                                               logclamp=logclamp)
 
+    if bias_correct:
+        if s0 is None:
+            s0 = utils.calc_average_s0(data, bvals, relbthresh)
+        fvecs, fveclog, bias = correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv=t1wtiv)
     lsvmmask, probs, clog = probabilistic_classify(fvecs, aff, clf,
                                                    smoothrad=smoothrad,
                                                    t1wtiv=t1wtiv,

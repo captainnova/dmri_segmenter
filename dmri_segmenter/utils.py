@@ -96,6 +96,14 @@ def binary_closing(arr, structure=None, out=None, mode='constant', cval=0,
     return tmp[crop].copy()
 
 
+def _bconv(arr, structure, out, mode, cval, origin):
+    binary, conv, structure = _check_img_and_selem(arr, structure)
+    ndi.convolve(binary, structure, mode=mode, cval=cval, output=conv, origin=origin)
+    if out is None:
+        out = np.empty_like(binary, dtype=np.uint8)  # bool might be more logical.
+    return conv, out
+
+
 def binary_dilation(arr, structure=None, out=None, mode='nearest', cval=0.0, origin=0):
     """
     Multidimensional binary dilation with a given structuring element.
@@ -130,10 +138,7 @@ def binary_dilation(arr, structure=None, out=None, mode='nearest', cval=0.0, ori
     binary_dilation: ndarray of bools
         Dilation of arr by the structuring element.
     """
-    binary, conv, structure = _check_img_and_selem(arr, structure)
-    ndi.convolve(binary, structure, mode=mode, cval=cval, output=conv, origin=origin)
-    if out is None:
-        out = np.empty_like(binary, dtype=np.uint8)  # np.bool might be more logical.
+    conv, out = _bconv(arr, structure, out, mode, cval, origin)
     return np.not_equal(conv, 0, out=out)
 
 
@@ -171,10 +176,7 @@ def binary_erosion(arr, structure=None, out=None, mode='nearest', cval=0.0, orig
     binary_erosion : ndarray of bools
     Erosion of arr by the structuring element.
     """
-    binary, conv, structure = _check_img_and_selem(arr, structure)
-    ndi.convolve(binary, structure, output=conv, mode=mode, cval=cval, origin=origin)
-    if out is None:
-        out = np.empty_like(binary, dtype=np.uint8)  # np.bool might be more logical.
+    conv, out = _bconv(arr, structure, out, mode, cval, origin)
     return np.equal(conv, np.sum(structure), out=out)
 
 
@@ -244,7 +246,7 @@ def cond_to_mask(seg, cond):
     return mask
 
 
-def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
+def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False, ball=None):
     """
     Fill holes in mask, where holes are defined as places in (a possibly
     dilated) mask that are False and do not connect to the outside edge of
@@ -266,6 +268,8 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
         Chattiness.
     inplace: bool
         Iff True, modify msk in place.
+    ball: Optional, None or array
+        Supply a premade dilation ball instead of using dilrad.
 
     Output
     ------
@@ -289,33 +293,15 @@ def fill_holes(msk, aff, dilrad=-1, verbose=True, inplace=False):
             mask = msk.copy()
         if verbose:
             print("Filling holes")
-        # Based on http://scikit-image.org/docs/dev/auto_examples/plot_holes_and_peaks.html
-        # hmask = np.zeros(mask.shape)
-        # for z in xrange(mask.shape[2]):
-        #     seed = np.copy(mask[:, :, z])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[:, :, z] = reconstruction(seed, mask[:, :, z], method='erosion')
-        # #if verbose:
-        # #    print "Filling holes in coronal slices"
-        # for y in xrange(mask.shape[1]):
-        #     seed = np.copy(mask[:, y, :])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[:, y, :] += reconstruction(seed, mask[:, y, :], method='erosion')
-        # #if verbose:
-        # #    print "Filling holes in sagittal slices"
-        # for x in xrange(mask.shape[0]):
-        #     seed = np.copy(mask[x, :, :])
-        #     seed[1:-1, 1:-1] = 1
-        #     hmask[x, :, :] += reconstruction(seed, mask[x, :, :], method='erosion')
-        # mask[hmask > 1] = 1
-
-        if dilrad > 0:
+        if ball is None and dilrad > 0:
             ball = make_structural_sphere(aff, dilrad)
+        if ball is not None:
             dmask = binary_closing(mask, ball)
         else:
             dmask = mask.copy()
+        interior = tuple([slice(1, -1)] * len(mask.shape))
         seed = dmask.copy()
-        seed[1:-1, 1:-1, 1:-1] = 1
+        seed[interior] = 1
         hmask = reconstruction(seed, dmask, method='erosion')
 
         if dilrad > 0:
@@ -372,6 +358,24 @@ def instaprint(msg, stream=sys.stdout):
     stream.flush()
 
 
+def get_rad_and_scales(aff, rad=None):
+    scales = np.abs([aff[i, i] for i in range(3)])
+    maxscale = max(scales)
+    if not rad:
+        rad = maxscale
+    if rad < maxscale:
+        print("Warning!  rad, %f, is < the largest voxel scale, %f." % (rad, maxscale))
+    return rad, scales
+
+
+def _prep_n_sphere(rad, scales):
+    cent = np.asarray(np.floor(rad / scales), int)
+    shape = 2 * cent + 1
+    output = np.zeros(shape, dtype=bool)
+    r2 = rad**2
+    return cent, shape, output, r2
+    
+
 def make_structural_sphere(aff, rad=None):
     """
     Returns a ball of radius rad.
@@ -386,17 +390,9 @@ def make_structural_sphere(aff, rad=None):
         The radius of the ball in units of aff.
         If None, the largest voxel dimension will be used.
     """
-    scales = np.abs([aff[i, i] for i in range(3)])
-    maxscale = max(scales)
-    if not rad:
-        rad = maxscale
-    if rad < maxscale:
-        print("Warning!  rad, %f, is < the largest voxel scale, %f." % (rad, maxscale))
-
+    rad, scales = get_rad_and_scales(aff, rad)
     cent = np.asarray(np.floor(rad / scales), int)
-    shape = 2 * cent + 1
-    output = np.zeros(shape, dtype=bool)
-    r2 = rad**2
+    cent, shape, output, r2 = _prep_n_sphere(rad, scales)
 
     # Loop over an octant
     for i in range(cent[0] + 1):
@@ -414,7 +410,43 @@ def make_structural_sphere(aff, rad=None):
                             for ksign in [-1, 1]:
                                 output[cent[0] + isign * i,
                                        cent[1] + jsign * j,
-                                       cent[2] + ksign * k] = isin
+                                       cent[2] + ksign * k] = True
+    return output
+
+
+def make_disk(aff, ax, rad=None):
+    """
+    Returns a disk of radius rad.
+    Like ndimage.generate_binary_structure, but allowing for anisotropic voxels.
+
+    Parameters
+    ----------
+    aff: array-like
+        Affine matrix.  N.B.: the voxel dimensions are taken strictly from the
+        diagonal, so it may have errors with oblique affine matrices.
+    ax: 0, 1, or 2
+       The plane to make the disk in, 0 for x (sagittal), 1 for y (coronal), 2 for z (axial).
+    rad: float or bool
+        The radius of the ball in units of aff.
+        If None, the largest voxel dimension will be used.
+    """
+    rad, scales = get_rad_and_scales(aff, rad)
+    planeaxes = [a for a in range(3) if a != ax]
+    scales = scales[planeaxes]
+    cent, shape, output, r2 = _prep_n_sphere(rad, scales)
+
+    # Loop over a quadrant
+    for i in range(cent[0] + 1):
+        xterm = (scales[0] * i)**2
+        for j in range(cent[1] + 1):
+            yterm = (scales[1] * j)**2
+            isin = xterm + yterm <= r2
+            if isin:
+                # Reflect to all quadrants.  The meridians will be overdone, but oh well.
+                for isign in [-1, 1]:
+                    for jsign in [-1, 1]:
+                        output[cent[0] + isign * i,
+                               cent[1] + jsign * j] = True
     return output
 
 

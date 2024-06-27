@@ -1,5 +1,5 @@
-commit cb5adf434a1021f429aa270b140eb2414efbe740
+commit ab8cb4c45bdc89cb0102e7aad86abd3dfed0a13c
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sun May 5 15:03:12 2024 -0500
+Date:   Sun May 5 16:00:36 2024 -0500
 
-    removes subprocess since it is no longer needed
+    Adds comparison with SynthStrip
