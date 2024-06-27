@@ -1,5 +1,5 @@
-commit ab8cb4c45bdc89cb0102e7aad86abd3dfed0a13c
+commit bb589bf0a8fc00104283ead73d9dfe6ddf293e13
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sun May 5 16:00:36 2024 -0500
+Date:   Thu Jun 27 13:02:27 2024 -0500
 
-    Adds comparison with SynthStrip
+    Edge sealing, empirical CSF/brain ratio estimation, bias correction
