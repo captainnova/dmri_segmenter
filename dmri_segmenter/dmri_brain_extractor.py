@@ -451,7 +451,7 @@ def seal_edges(src, mask, aff, dilation):
         end = mask.shape[ax] - 1
         disk = utils.make_disk(aff, ax, dilation)
         for ind in (0, end):
-            slicer = selector.copy()
+            slicer = selector[:]   # Py2 doesn't have list.copy()
             slicer[ax] = ind
             slicer = tuple(slicer)
             if (src[slicer] == 0).all():
