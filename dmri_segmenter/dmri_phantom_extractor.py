@@ -43,11 +43,11 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
         1 where the voxels are bright enough in either diffusion weighted or diffusion unweighted volumes,
         0 elsewhere.
     """
-    if not hasattr(img, 'get_data'):
+    if not hasattr(img, 'get_fdata'):
         dnii = nib.load(img)
     else:
         dnii = img
-    data = dnii.get_data()
+    data = dnii.get_fdata()
     s0 = utils.calc_average_s0(data, bvals)
     madje, bscale = dbe.make_mean_adje(data, bvals, Dt=Dt, Dcsf=Dcsf)
     gtiv = dbe.make_grad_based_TIV(s0, madje, dnii.affine, ncomponents=ncomponents,
