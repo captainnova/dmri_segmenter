@@ -1,5 +1,5 @@
-commit edaee5fef01be12a031e819346d684d87776879b
+commit b302fde2ba6193659134db45baf6b887afcd39fb
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Fri Jun 28 10:31:38 2024 -0500
+Date:   Tue Sep 10 11:32:13 2024 -0500
 
-    Py2 doesn't have list.copy(), so use [:]
+    Belated replacement of .get_data with .get_fdata for phantoms

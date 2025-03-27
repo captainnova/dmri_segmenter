@@ -27,7 +27,7 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
     dtype: type
         The data type for the output.
     Dt: float
-        The axial diffusiivity of the restricted component (if any),
+        The axial diffusivity of the restricted component (if any),
         in reciprocal units of bvals.
     Dcsf: float
         The mean diffusiivity of the unrestricted component,

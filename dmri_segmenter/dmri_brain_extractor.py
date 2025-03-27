@@ -47,7 +47,7 @@ def get_version_info(lcmfn="last_commit_message"):
 
     TODO: Replace this with a reading a file written by a (pre-)commit hook,
     since git >= 2.35 refuses to read other people's git repos unless the
-    target repo is marked safe. Apparently there is a security risk where
+    target repo is marked safe. Apparently there is a security risk wheren
     git would read the other repo's configuration and could be tricked into
     doing something nefarious.
     """
@@ -72,7 +72,7 @@ def get_version_info(lcmfn="last_commit_message"):
         # I don't think it's really worth worrying anyone if we can't get the
         # last commit message.
         warnings.warn("Trying to get the repository info for %s failed with:\n\t%s\n"
-                      % (filename, e), RuntimeWarning)
+                      % (filename, e), RuntimeWarning, stacklevel=1)
     return vinfo
 
 
@@ -430,7 +430,8 @@ def seal_edges(src, mask, aff, dilation):
     ----------
     src : 3D array, nominally float
        The source image that mask was made from. An edge is only completely
-       filled with ones if it is all zeroes in *src* (the eddy case).
+       filled with ones if it is all zeroes in *src* (the eddy case). src is
+       used just as a check of where the input data for mask is valid.
     mask : 3D bool array
         The mask to be copied and sealed on its top and bottom,
         left and right, and front and back sides.
@@ -447,21 +448,25 @@ def seal_edges(src, mask, aff, dilation):
     selector = [slice(None)] * 3
     smask = mask.copy()
     nfilled = 0
-    for ax in range(3):
-        end = mask.shape[ax] - 1
+
+    for ax in range(2, -1, -1):    # Deliberately start with z because we might have to stop before x.
         disk = utils.make_disk(aff, ax, dilation)
+
+        end = mask.shape[ax] - 1
         for ind in (0, end):
             slicer = selector[:]   # Py2 doesn't have list.copy()
             slicer[ax] = ind
             slicer = tuple(slicer)
             if (src[slicer] == 0).all():
-                smask[slicer] = True       # Suspiciously zeroed (by eddy?)
+                if nfilled < 5:
+                    smask[slicer] = True       # Suspiciously zeroed (by eddy?)
                 nfilled += 1
             else:
                 smask[slicer], _ = utils.fill_holes(smask[slicer], aff, verbose=False, inplace=True,
                                                     ball=disk)
     if nfilled == 6:
-        print("Warning! All of the edges have been filled with ones! Hole filling will fill from the edges in!")
+        warnings.warn("All of the edges were zeros - edge sealing on the 0th axis was disabled to prevent filling in the entire box.",
+                      RuntimeWarning, stacklevel=2)
     return smask
     
 
@@ -1218,7 +1223,7 @@ def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
     calculate ln(s0 / prediction), blur it, and exponentiate that to get the bias field,
     use it to correct fvecs.
     """
-    lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
+    _lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
     nclasses = probs.shape[-1]
 
     mean_brightnesses = np.linalg.lstsq(probs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
