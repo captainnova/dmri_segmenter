@@ -1,14 +1,9 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
-from builtins import range
-#from past.utils import old_div
 from glob import glob
 from multiprocessing import cpu_count
 import numpy as np
 import scipy.ndimage as ndi
 try:
-    from skimage.filter import threshold_otsu as otsu
+    from skimage.filters import threshold_otsu as otsu
 except Exception:
     from dipy.segment.threshold import otsu
 from skimage.morphology import reconstruction
@@ -31,7 +26,7 @@ def _check_img_and_selem(img, structure):
         raise TypeError('Complex type not supported')
     if not structure.flags.contiguous:
         structure = structure.copy()
-    if np.product(structure.shape, axis=0) < 1:
+    if np.prod(structure.shape, axis=0) < 1:
         raise RuntimeError('structure must not be empty')
 
     if np.sum(structure) <= 255:
@@ -494,7 +489,7 @@ def remove_disconnected_components(mask, aff=None, dilrad=0, inplace=True, verbo
     if dilrad:
         ball = make_structural_sphere(aff, dilrad)
         # Closing isn't really necessary since mask itself is not dilated.
-        cmask = ndi.morphology.binary_dilation(cmask, ball)
+        cmask = ndi.binary_dilation(cmask, ball)
     labelled, nb_labels = ndi.label(cmask)
     if verbose:
         print("Found %d components" % nb_labels)

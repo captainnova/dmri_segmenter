@@ -1,5 +1,5 @@
-commit b302fde2ba6193659134db45baf6b887afcd39fb
+commit e855b0aad000fc75ddb9e71ee62bebd7e58e17be
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Tue Sep 10 11:32:13 2024 -0500
+Date:   Thu Mar 27 17:19:58 2025 -0500
 
-    Belated replacement of .get_data with .get_fdata for phantoms
+    Avoid ever sealing all 6 edges of the image when filling holes
