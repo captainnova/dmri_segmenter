@@ -39,7 +39,7 @@ Licensed under the Apache License, Version 2.0 (see LICENSE and NOTICE).
 ## Dependencies
 All but the first two can be installed with pip(env).
 - POSIX? (not yet tested with Windows)
-- python 2.7, or python 3.6+
+- python 3.6+
 - dipy
   - Dependencies:
     - nibabel
@@ -47,7 +47,7 @@ All but the first two can be installed with pip(env).
     - (If installing via pip): 
       - sudo apt install python-dev (Debian and its derivatives)
       - sudo yum install python-devel (Red Hat and its derivatives)
-- future (for python 2/3 compatibility)
+- future
 - scikit-image
 - scikit-learn
 - if using scikit-learn > 0.23.2 (very likely): onnxruntime
