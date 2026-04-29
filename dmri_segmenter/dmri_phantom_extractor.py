@@ -1,36 +1,37 @@
-from __future__ import absolute_import
+from typing import Optional, Union
+
 import nibabel as nib
 import numpy as np
+import numpy.typing as npt
 
 try:
     from . import dmri_brain_extractor as dbe
     from . import utils
 except Exception:
-    import dmri_brain_extractor as dbe
-    import utils
+    import dmri_brain_extractor as dbe    # type: ignore
+    import utils                          # type: ignore
 
 
-def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
-                      Dt=0.0015, Dcsf=0.0021, ncomponents=None):
+def make_phantom_mask(img: Union[str, nib.Nifti1Image],
+                      bvals: npt.NDArray,
+                      closerad: float=3,
+                      dtype=np.uint8,
+                      Dt: float=0.0015, Dcsf: float=0.0021,
+                      ncomponents: Optional[int]=None) -> npt.NDArray:
     """
     Make a mask for the "interesting" voxels of img.
 
     Parameters
     ----------
-    img: str or nib.Nifti1Image
-        A 4D diffusion MRI NIfTI image, or its filename.
-    bvals: array
-        The diffusion weightings of each volume in img.
-    closerad: float
-        How many mm to close by at the end. Set it to a bit more than half the
-        thickness of any plastic features you want to include.
+    img: A 4D diffusion MRI NIfTI image, or its filename.
+    bvals: The diffusion weightings of each volume in img.
+    closerad: How many mm to close by at the end. Set it to a bit more than
+        half the thickness of any plastic features you want to include.
     dtype: type
         The data type for the output.
-    Dt: float
-        The axial diffusivity of the restricted component (if any),
+    Dt: The axial diffusivity of the restricted component (if any),
         in reciprocal units of bvals.
-    Dcsf: float
-        The mean diffusiivity of the unrestricted component,
+    Dcsf: The mean diffusiivity of the unrestricted component,
         in reciprocal units of bvals. The defaults are suitable for
         a (mostly) water phantom at ~18C.
     ncomponents: None or int > 0
@@ -43,8 +44,8 @@ def make_phantom_mask(img, bvals, closerad=3, dtype=np.uint8,
         1 where the voxels are bright enough in either diffusion weighted or diffusion unweighted volumes,
         0 elsewhere.
     """
-    if not hasattr(img, 'get_fdata'):
-        dnii = nib.load(img)
+    if isinstance(img, str):
+        dnii = nib.Nifti1Image.load(img)
     else:
         dnii = img
     data = dnii.get_fdata()

@@ -1,46 +1,45 @@
-from __future__ import print_function
-from __future__ import absolute_import
-from __future__ import division
-from builtins import str
-from builtins import range
 import datetime
+import os
+import socket
+import sys
+from typing import Optional, Tuple, Union
+import warnings
+
 #from icecream import ic
 import nibabel as nib
+import nibabel.nifti1            # explicit import to help ty.
 import numpy as np
-import os
+import numpy.typing as npt
 import scipy.ndimage as ndi
 from scipy.ndimage.filters import median_filter
 import scipy.special
 #import sklearn.externals.joblib as joblib
 try:
-    from skimage.filter import threshold_otsu as otsu
-except ImportError:
     from dipy.segment.threshold import otsu
+except ImportError:
+    from skimage.filter import threshold_otsu as otsu
 from skimage.segmentation import morphological_geodesic_active_contour
 try:
     import six
 except ImportError:
     import dipy.utils.six as six
-import socket
-import sys
-import warnings
 
 try:
     from .classifier_io import choose_default_clf, load_classifier
     from .FLAIRity import FLAIRity
     from . import utils
 except Exception:                         # I'm not sure this ever gets used anymore.
-    from classifier_io import choose_default_clf, load_classifier
-    from FLAIRity import FLAIRity
-    import utils
+    from classifier_io import choose_default_clf, load_classifier    # type: ignore
+    from FLAIRity import FLAIRity                                    # type: ignore
+    import utils                                                     # type: ignore
 
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "2.3.0 20240627"
+__version__ = "3.0.0 20260310"
 
 
-def get_version_info(lcmfn="last_commit_message"):
+def get_version_info(lcmfn: str="last_commit_message"):
     """
     Returns a str blurb identifying the version of this file, and if available,
     the last commit message.
@@ -76,7 +75,8 @@ def get_version_info(lcmfn="last_commit_message"):
     return vinfo
 
 
-def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
+def save_mask(arr: npt.NDArray, aff: npt.NDArray, outfn: str, exttext: Optional[str]='',
+              outtype=np.uint8):
     """
     Saves a numpy array to a nii.
     """
@@ -87,8 +87,10 @@ def save_mask(arr, aff, outfn, exttext='', outtype=np.uint8):
     nib.save(mnii, outfn)
 
 
-def get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping, maxscale, flairness, aff, verbose, dilate,
-                                      nmed, medrad, whiskradinvox, trim_whiskers, closerad):
+def get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping: float, maxscale: float, flairness,
+                                      aff: npt.NDArray, verbose: bool, dilate: Union[float, bool],
+                                      nmed: int, medrad: float, whiskradinvox: float,
+                                      trim_whiskers: bool, closerad: float) -> Tuple[npt.NDArray, npt.NDArray]:
     if dilate_before_chopping >= 1:
         dilrad = dilate_before_chopping * maxscale
     else:
@@ -158,7 +160,7 @@ def get_brain_and_tiv_from_FLAIR_dMRI(dilate_before_chopping, maxscale, flairnes
     return mask, tiv
 
 
-def _print_flair_msg(isFLAIR, flairness, verbose):
+def _print_flair_msg(isFLAIR: Optional[bool], flairness, verbose: bool) -> str:
     if isFLAIR is None:
         if flairness.flairity:
             flair_msg = "This appears"
@@ -175,12 +177,19 @@ def _print_flair_msg(isFLAIR, flairness, verbose):
     return flair_msg
 
 
-def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
-                           medrad=1, nmed=2, verbose=True, dilate=True,
-                           dilate_before_chopping=1, closerad=3.7,
-                           whiskradinvox=4, Dt=0.0007, DCSF=0.003,
-                           isFLAIR=None, trim_whiskers=True,
-                           svc=None, t1wtiv=None):
+def get_dmri_brain_and_tiv(data: Optional[npt.NDArray], ecnii: nib.Nifti1Image,
+                           brfn: Optional[str], tivfn: Optional[str],
+                           bvals: npt.NDArray, relbthresh: float=0.04,
+                           medrad: float=1, nmed: int=2, verbose: bool=True,
+                           dilate: Union[float, bool]=True,
+                           dilate_before_chopping: float=1,
+                           closerad: float=3.7,
+                           whiskradinvox: float=4,
+                           Dt: float=0.0007, DCSF: float=0.003,
+                           isFLAIR: Optional[bool]=None,
+                           trim_whiskers: bool=True,
+                           svc: Optional[Union[str, dict]]=None,
+                           t1wtiv=None) -> Tuple[npt.NDArray, npt.NDArray]:
     """
     Make a brain and a TIV mask from 4D diffusion data.
 
@@ -190,55 +199,41 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
 
     Parameters
     ----------
-    data: array-like
-        The 4D data.
-    ecnii: array-like
-        The opened nii instance of the data (data = ecnii.get_fdata())
-    brfn: string
-        Filename for the brain mask.  If blank, no file will be
-        written.
-    tivfn: string
-        Filename for the TIV mask.  If blank, no file will be
-        written.
+    data: The 4D data. If None, reads ecnii.
+    ecnii: The opened nii instance of the data (data = ecnii.get_fdata())
+    brfn: Filename for the brain mask.  If blank, no file will be written.
+    tivfn: Filename for the TIV mask.  If blank, no file will be written.
     bvals: array  (NOT a list!)
         The diffusion strengths for each volume in data, nominally in
         s/mm**2.  (Adjust Dt and DCSF if using different units.)
-    relbthresh: float
-        Threshold between b0s and diffusion volumes, as a fraction of
+    relbthresh: Threshold between b0s and diffusion volumes, as a fraction of
         max(bvals).
-    medrad: float
-        Radius of the median filter relative to the largest voxel size.
-    nmed: int
-        Number of times to run the median filter
-    verbose: Boolean
-        Make it chattier.
+    medrad: Radius of the median filter relative to the largest voxel size.
+    nmed: Number of times to run the median filter
+    verbose: Make it chattier.
     dilate: Bool or float
         If >= 1, dilate with this radius (relative to the largest voxel size).
         If True, use medrad * nmed.
         If between 0 and 1, dilate by a voxel.
         N.B.: It only affects FLAIR DTI!
-    dilate_before_chopping: float
+    dilate_before_chopping:
         If >= 1, dilate _the_copy_used_for_finding_the_largest_connected_component_
         with this * the largest voxel size before removing disconnected components.
         1 is highly recommended - less can chop off important things, and more can
         connect unwanted things like eyeballs and jowls.
-    closerad: float
-        A radius in mm used to close gaps when needed.  Effectively at least 2 * maxscale.
-    whiskradinvox: float
-        Scale relative to the largest voxel dimension of data.
-    Dt: float
-        The nominal diffusivity of tissue in reciprocal units of bvals.
+    closerad: A radius in mm used to close gaps when needed.
+        Effectively at least 2 * maxscale.
+    whiskradinvox: Scale relative to the largest voxel dimension of data.
+    Dt: The nominal diffusivity of tissue in reciprocal units of bvals.
         Depends on temperature.
-    DCSF: float
-        The nominal diffusivity of CSF in reciprocal units of bvals.
+    DCSF: The nominal diffusivity of CSF in reciprocal units of bvals.
         Depends on temperature, and can be artificially depressed in scans where
         the b0 CSF is brighter than the maximum int value.
     isFLAIR: None or bool
         Whether or not data is a FLAIR diffusion acquisition.  If None, try to
         determine it from CSF/tissue brightness ratio by doing a (slow)
         preliminary segmentation.
-    svc : Optional, None, str, or dict
-        The classifier as a directory or filename, or a dict.
+    svc : The classifier as a directory or filename, or a dict.
         If None, classifier_io.choose_default_clf() will look for one in onnx
         format if you have onnx installed, or as a pickle otherwise.
         (Pickles are liable to break when libraries change. Otherwise
@@ -250,10 +245,8 @@ def get_dmri_brain_and_tiv(data, ecnii, brfn, tivfn, bvals, relbthresh=0.04,
 
     Outputs
     -------
-    mask: array-like
-        3D array which is 1 where there should be brain, and 0 elsewhere.
-    tiv: array-like
-        3D array which is 1 inside the braincase and 0 outside.
+    mask: 3D array which is 1 where there should be brain, and 0 elsewhere.
+    tiv: 3D array which is 1 inside the braincase and 0 outside.
     """
     if svc is None:
         svc = choose_default_clf()
@@ -788,7 +781,7 @@ def make_feature_vectors(data, aff, bvals, relbthresh=0.04, smoothrad=10.0, s0=N
     return fvecs, posterity
 
 
-def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
+def classify_fvf(fvecs: npt.NDArray, clf, airthresh: float=0.5, t1_will_be_used: bool=False) -> Tuple[npt.NDArray, npt.NDArray]:
     """
     Segment a feature vector field using a scikit-learn classifier.
 
@@ -798,6 +791,8 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
         The feature vector field
     clf: sklearn.ensemble.*
         A trained classifier
+    airthresh:
+    t1_will_be_used: Iff True, use a blurred version of the T1w TIV mask as a prior.
 
     Output
     ------
@@ -847,7 +842,7 @@ def classify_fvf(fvecs, clf, airthresh=0.5, t1_will_be_used=False):
 
     seg = np.reshape(mask, fvecs.shape[:3])
 
-    if t1_will_be_used:
+    if t1_will_be_used and probs is not None:
         # Other that is a voxel or so thick is probably other, i.e. tentorium +
         # partial volume stuff, but large clumps of other are probably actually
         # dark brain, IF the T1 TIV can be relied on to get rid of other far
@@ -1226,8 +1221,23 @@ def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
     _lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
     nclasses = probs.shape[-1]
 
-    mean_brightnesses = np.linalg.lstsq(probs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
-                                        s0.flat, rcond=None)[0]
+    #mean_brightnesses = np.linalg.lstsq(probs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
+    #                                    s0.flat, rcond=None)[0]
+    mean_brightnesses = np.empty(nclasses)
+    min_nvox = min(16, np.prod(s0.shape))
+    for v in range(nclasses):
+        class_thresh = 0.75
+        nvox_in_class_mask = 0
+        while nvox_in_class_mask < min_nvox and class_thresh > 0:
+            class_mask = probs[..., v] > class_thresh
+            nvox_in_class_mask = class_mask.sum()
+            class_thresh -= 0.1
+        if nvox_in_class_mask >= min_nvox:
+            _mbs = np.linalg.lstsq(probs[class_mask > 0.5], s0[class_mask > 0.5], rcond=None)[0]
+            mean_brightnesses[v] = _mbs[v]
+        else:
+            mean_brightnesses[v] = 0
+    
     pred = np.zeros_like(s0)
     bfloor = 0.5 * min(mean_brightnesses)
     for v in range(nclasses):
@@ -1282,7 +1292,7 @@ def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
     return fvecs, fveclog, bias
 
 
-def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
+def feature_vector_classify(data: npt.NDArray, aff: npt.NDArray, bvals=None, clf='RFC_classifier.pickle',
                             relbthresh=0.04, smoothrad=10.0, s0=None, Dt=0.0021,
                             Dcsf=0.00305, blankval=0, clamp=30,
                             normslop=0.2, logclamp=-10, fvecs=None,
@@ -1381,7 +1391,7 @@ def feature_vector_classify(data, aff, bvals=None, clf='RFC_classifier.pickle',
         posterity += "Classifier coefficients:\n%s\n\n" % clf['1st stage'].coef_
 
     if isinstance(fvecs, six.string_types):
-        fvnii = nib.load(fvecs)
+        fvnii = nib.Nifti1Image.load(fvecs)
         fvecs = fvnii.get_fdata()
         for ext in fvnii.header.extensions:
             posterity += str(ext)

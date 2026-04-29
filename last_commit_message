@@ -1,5 +1,5 @@
-commit 4f73d24037f13cf611091c9685bba457d9727c5f
+commit 8ba81341b09efbcd9860184dd4717d3a1e827cba
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sat Aug 16 17:15:09 2025 -0500
+Date:   Sat Aug 16 17:23:50 2025 -0500
 
-    Updates numpy and scipy function names for py ~ 3.12 and drops py2
+    Drops python 2 from README

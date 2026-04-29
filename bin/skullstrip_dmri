@@ -49,7 +49,6 @@ Options intended for animal dMRI:
                           parameters. (Not used for FLAIR.)
   -w --whiskers           If given, do NOT try harder to trim whiskers.
 """
-from __future__ import print_function
 
 from dipy.io import read_bvals_bvecs
 from docopt import docopt
