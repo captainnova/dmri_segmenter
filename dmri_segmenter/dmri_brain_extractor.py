@@ -36,7 +36,7 @@ except Exception:                         # I'm not sure this ever gets used any
 # A combination of semantic versioning and the date. I admit that I do not
 # always remember to update this, so use get_version_info() to also try to
 # get the most recent commit message.
-__version__ = "3.0.0 20260310"
+__version__ = "3.2.0 20260429"
 
 
 def get_version_info(lcmfn: str="last_commit_message"):
@@ -1221,11 +1221,22 @@ def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
     _lsvmmask, probs = classify_fvf(fvecs, clf['1st stage'], t1_will_be_used=t1wtiv is not None)
     nclasses = probs.shape[-1]
 
+    # The old way: estimate each class' brightness all at once, with a simple linear fit.
+    # Unfortunately since any error in probs by definition raises the amount of incorrect class assignment,
+    # this estimate is biased toward mixing the brightnesses.
+    #
+    # It is not simply a matter of too many air voxels overwhelming the voxels with signal (although that
+    # does not help) - if the probs and s0 are weighted by s0 (i.e. s0 Ax = s0 y) it upweights the signal
+    # voxels but biases the estimates upward.
+    #
     #mean_brightnesses = np.linalg.lstsq(probs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
     #                                    s0.flat, rcond=None)[0]
     mean_brightnesses = np.empty(nclasses)
     min_nvox = min(16, np.prod(s0.shape))
     for v in range(nclasses):
+        # A better approach: reduce noise by limiting the estimate of each class' brightness to
+        # voxels where that class dominates (as much as it can, with handling of the case that
+        # the class is essentially absent).
         class_thresh = 0.75
         nvox_in_class_mask = 0
         while nvox_in_class_mask < min_nvox and class_thresh > 0:
@@ -1237,6 +1248,15 @@ def correct_bias(fvecs, s0, clf, aff, smoothrad, t1wtiv):
             mean_brightnesses[v] = _mbs[v]
         else:
             mean_brightnesses[v] = 0
+
+        # A close but experimentally not _quite_ as good alternative: weight both sides by probs
+        # (effectively probs**2 since least squares minimizes |Ax - b|**2).
+        # wprobs = probs.copy()
+        # for c in range(nclasses):
+        #     wprobs[..., c] *= probs[..., v]
+        # _mbs = np.linalg.lstsq(wprobs.reshape((np.prod(probs.shape[:-1]), probs.shape[-1])),
+        #                        (probs[..., v] * s0).flat, rcond=None)[0]
+        # mean_brightnesses[v] = _mbs[v]
     
     pred = np.zeros_like(s0)
     bfloor = 0.5 * min(mean_brightnesses)

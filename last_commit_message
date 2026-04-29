@@ -1,5 +1,5 @@
-commit 8ba81341b09efbcd9860184dd4717d3a1e827cba
+commit 50378a465da5c8105eaa3aaf2c1eab0922265b5b
 Author: Robert Reid <reid.robert@mayo.edu>
-Date:   Sat Aug 16 17:23:50 2025 -0500
+Date:   Wed Apr 29 09:41:36 2026 -0500
 
-    Drops python 2 from README
+    Refines the class brightness estimate for bias correction
